@@ -1,0 +1,34 @@
+<UserControl x:Class="WindowWorks.App.UI.ShortcutsSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:WindowWorks.App.UI"
+    Height="420" Width="520">
+    <StackPanel Margin="12">
+        <TextBlock FontSize="16" FontWeight="Bold">Shortcuts</TextBlock>
+        <TextBlock Margin="0,8,0,0">Configure global hotkeys used by WindowWorks.</TextBlock>
+        <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+            <TextBlock Width="180">Command palette</TextBlock>
+            <TextBlock x:Name="LblCommandDisplay" Width="180" VerticalAlignment="Center">Win+`</TextBlock>
+            <local:ShortcutPicker x:Name="PickerCommandPalette" Width="180" ShortcutChanged="OnShortcutChanged" Visibility="Collapsed" />
+            <Button x:Name="BtnEditCommand" Content="..." Width="28" Height="22" Margin="6,0,0,0" Click="BtnEditCommand_Click" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock Width="180">Emergency Reset</TextBlock>
+            <TextBlock x:Name="LblEmergencyDisplay" Width="180" VerticalAlignment="Center">Ctrl+Shift+R</TextBlock>
+            <local:ShortcutPicker x:Name="PickerEmergencyReset" Width="180" ShortcutChanged="OnShortcutChanged" Visibility="Collapsed" />
+            <Button x:Name="BtnEditEmergency" Content="..." Width="28" Height="22" Margin="6,0,0,0" Click="BtnEditEmergency_Click" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock Width="180">Opacity nudge (gesture)</TextBlock>
+            <TextBlock x:Name="LblOpacityGesture" Width="160" Text="Ctrl + Mouse Wheel (over title bar)" />
+            <Button x:Name="BtnEditOpacity" Content="..." Width="28" Height="22" Margin="6,0,0,0" Click="BtnEditOpacity_Click" />
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock Width="180">Toggle Topmost (gesture)</TextBlock>
+            <TextBlock x:Name="LblToggleGesture" Width="160" Text="Ctrl + Alt + Click" />
+            <Button x:Name="BtnEditToggle" Content="..." Width="28" Height="22" Margin="6,0,0,0" Click="BtnEditToggle_Click" />
+        </StackPanel>
+        <!-- Transparency and Topmost keyboard shortcuts removed: gestures remain mouse-based only -->
+        <TextBlock Margin="0,12,0,0">After changing hotkeys click Save to apply them. Invalid values will be ignored.</TextBlock>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,31 @@
+<Window x:Class="WindowWorks.App.UI.ShortcutCaptureWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Capture Shortcut" Height="140" Width="380" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="TxtPrompt" Text="Press the key combination or perform the mouse gesture now..." />
+
+        <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,8,0,0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Current: " FontWeight="SemiBold" Width="70" />
+                <TextBlock x:Name="TxtCurrent" Text="" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Text="New: " FontWeight="SemiBold" Width="70" />
+                <TextBlock x:Name="TxtCaptured" Text="" FontWeight="Bold" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <TextBlock x:Name="TxtConflict" Foreground="Red" VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed">Conflict: already in use</TextBlock>
+            <Button x:Name="BtnOk" Width="80" Margin="4" Click="BtnOk_Click">OK</Button>
+            <Button x:Name="BtnCancel" Width="80" Margin="4" Click="BtnCancel_Click">Cancel</Button>
+        </StackPanel>
+    </Grid>
+</Window>

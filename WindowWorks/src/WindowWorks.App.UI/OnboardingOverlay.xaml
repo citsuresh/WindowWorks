@@ -1,0 +1,14 @@
+<Window x:Class="WindowWorks.App.UI.OnboardingOverlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="#80000000" Topmost="True" ShowInTaskbar="False">
+    <Grid>
+        <Border Background="#CCFFFFFF" CornerRadius="8" Padding="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel>
+                <TextBlock FontSize="18" FontWeight="Bold" Text="Welcome to WindowWorks" Margin="0,0,0,8" />
+                <TextBlock TextWrapping="Wrap" Width="380">Use Ctrl+MouseWheel to nudge opacity, Ctrl+Alt+Click to toggle topmost, Ctrl+Shift+Click to toggle click-through. Press Undo in the HUD to revert last change.</TextBlock>
+                <Button Content="Close" Width="80" Margin="0,12,0,0" HorizontalAlignment="Right" Click="Close_Click" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

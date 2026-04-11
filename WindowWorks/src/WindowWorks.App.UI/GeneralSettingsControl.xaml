@@ -1,0 +1,10 @@
+<UserControl x:Class="WindowWorks.App.UI.GeneralSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Height="420" Width="520">
+    <StackPanel Margin="12">
+        <TextBlock FontSize="16" FontWeight="Bold">General</TextBlock>
+        <CheckBox x:Name="ChkEnableHighlight" Content="Enable Highlight" Margin="0,8,0,0" />
+        <CheckBox x:Name="ChkEnableConfirmations" Content="Enable HUD confirmations" Margin="0,8,0,0" />
+    </StackPanel>
+</UserControl>

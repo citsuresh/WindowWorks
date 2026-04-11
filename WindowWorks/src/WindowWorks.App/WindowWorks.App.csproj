@@ -1,0 +1,38 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>                                         
+    <UseWindowsForms>true</UseWindowsForms>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageIcon>appicon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="appicon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Use the repository-level docs file so it's not duplicated in the project folder -->
+    <EmbeddedResource Include="..\..\docs\default_presets.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WindowWorks.App.UI\WindowWorks.App.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="UI\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appicon.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,9 @@
+<UserControl x:Class="WindowWorks.App.UI.PresetsSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Height="420" Width="520">
+    <StackPanel Margin="12">
+        <TextBlock FontSize="16" FontWeight="Bold">Presets</TextBlock>
+        <TextBlock Margin="0,8,0,0">Manage and configure presets here.</TextBlock>
+    </StackPanel>
+</UserControl>

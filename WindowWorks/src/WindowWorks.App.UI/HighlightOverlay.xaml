@@ -1,0 +1,9 @@
+<Window x:Class="WindowWorks.App.UI.HighlightOverlay"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False"
+        ResizeMode="NoResize" ShowActivated="False">
+    <Canvas>
+        <Border x:Name="BorderHighlight" BorderThickness="4" CornerRadius="4" BorderBrush="#80FFFF00" Background="#40FFFF00" Visibility="Collapsed"/>
+    </Canvas>
+</Window>

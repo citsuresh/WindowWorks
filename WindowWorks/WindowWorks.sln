@@ -1,0 +1,27 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.5.11619.145
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WindowWorks.App", "src\WindowWorks.App\WindowWorks.App.csproj", "{A5C3E2F1-9F6A-4E4B-9E1E-1E6C7C0D1A2B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WindowWorks.App.UI", "src\WindowWorks.App.UI\WindowWorks.App.UI.csproj", "{F82E2ED7-B0BA-F39D-3C52-D054BE57D0DA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A5C3E2F1-9F6A-4E4B-9E1E-1E6C7C0D1A2B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5C3E2F1-9F6A-4E4B-9E1E-1E6C7C0D1A2B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5C3E2F1-9F6A-4E4B-9E1E-1E6C7C0D1A2B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5C3E2F1-9F6A-4E4B-9E1E-1E6C7C0D1A2B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F82E2ED7-B0BA-F39D-3C52-D054BE57D0DA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F82E2ED7-B0BA-F39D-3C52-D054BE57D0DA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F82E2ED7-B0BA-F39D-3C52-D054BE57D0DA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F82E2ED7-B0BA-F39D-3C52-D054BE57D0DA}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

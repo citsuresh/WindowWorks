@@ -1,0 +1,23 @@
+[
+  {
+    "Name": "Reading Mode",
+    "Description": "Reduce glare and focus on content",
+    "Opacity": 85,
+    "Topmost": false,
+    "ClickThrough": false
+  },
+n  {
+    "Name": "Overlay Mode",
+    "Description": "Make window semi-transparent and click-through for overlay work",
+    "Opacity": 50,
+    "Topmost": true,
+    "ClickThrough": true
+  },
+  {
+    "Name": "Focus Mode",
+    "Description": "Make window opaque and topmost to focus on a single app",
+    "Opacity": 100,
+    "Topmost": true,
+    "ClickThrough": false
+  }
+]
