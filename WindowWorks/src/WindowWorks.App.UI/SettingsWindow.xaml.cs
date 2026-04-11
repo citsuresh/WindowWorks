@@ -78,10 +78,15 @@ namespace WindowWorks.App.UI
                     if (_initialDict != null) g.LoadFromDictionary(_initialDict);
                     ContentArea.Content = g;
                     break;
-                case "Highlight & HUD":
+                case "Highlight":
                     var h = new HighlightSettingsControl();
                     if (_initialDict != null) h.LoadFromDictionary(_initialDict);
                     ContentArea.Content = h;
+                    break;
+                case "HUD":
+                    var hud = new HudSettingsControl();
+                    if (_initialDict != null) hud.LoadFromDictionary(_initialDict);
+                    ContentArea.Content = hud;
                     break;
                 case "Shortcuts":
                     var sControl = new ShortcutsSettingsControl();
@@ -148,6 +153,24 @@ namespace WindowWorks.App.UI
                     if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
                     if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
                     // Opacity nudge and Toggle Topmost are mouse gestures and are not saved as keyboard shortcuts.
+                }
+                // For HUD page, capture HUD visual settings
+                if (ContentArea.Content is HudSettingsControl hud)
+                {
+                    var tbBg = hud.FindName("TxtHudBackground") as System.Windows.Controls.TextBox;
+                    var tbTrans = hud.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
+                    var tbFont = hud.FindName("TxtHudFontSize") as System.Windows.Controls.TextBox;
+                    var tbCorner = hud.FindName("TxtHudCorner") as System.Windows.Controls.TextBox;
+                    var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
+                    var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
+                    var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
+                    if (tbBg != null) settingsDict["HudBackgroundColor"] = tbBg.Text?.Trim();
+                    if (tbTrans != null && int.TryParse(tbTrans.Text, out var tp)) settingsDict["HudTransparencyPercent"] = tp;
+                    if (tbFont != null && int.TryParse(tbFont.Text, out var fs)) settingsDict["HudFontSize"] = fs;
+                    if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;
+                    if (chkOpacity != null) settingsDict["ShowHudOnOpacityChange"] = chkOpacity.IsChecked == true;
+                    if (chkTop != null) settingsDict["ShowHudOnTopmostToggle"] = chkTop.IsChecked == true;
+                    if (chkPreset != null) settingsDict["ShowHudOnPresetApplied"] = chkPreset.IsChecked == true;
                 }
                 // Signal result as JSON and close
                 var json = JsonSerializer.Serialize(settingsDict);

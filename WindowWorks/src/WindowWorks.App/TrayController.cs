@@ -291,7 +291,15 @@ namespace WindowWorks.App
             _lastTargetHwnd = hwnd;
             try { _windowManager.ShowHighlight(hwnd); } catch { }
             _windowManager.AdjustOpacity(hwnd, e.Delta, saveSnapshot: true);
-            ShowHud("Opacity " + (e.Delta > 0 ? "+" : "") + e.Delta + "%", hwnd);
+            // Respect HUD display setting
+            try
+            {
+                if (_settings.ShowHudOnOpacityChange)
+                {
+                    ShowHud("Opacity " + (e.Delta > 0 ? "+" : "") + e.Delta + "%", hwnd);
+                }
+            }
+            catch { }
         }
 
         private void HotkeyManager_ToggleTopmostRequested(object? sender, EventArgs e)

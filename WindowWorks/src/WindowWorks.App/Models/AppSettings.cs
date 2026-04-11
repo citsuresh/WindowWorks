@@ -48,6 +48,12 @@ namespace WindowWorks.App.Models
         public int HudFontSize { get; set; } = 13;
         public string HudBackgroundColor { get; set; } = "#88000000";
         public int HudCornerRadius { get; set; } = 6;
+        // HUD transparency (0-100 percent)
+        public int HudTransparencyPercent { get; set; } = 50;
+        // Which HUDs to show (bit flags stored as simple booleans for UI granularity)
+        public bool ShowHudOnOpacityChange { get; set; } = true;
+        public bool ShowHudOnTopmostToggle { get; set; } = true;
+        public bool ShowHudOnPresetApplied { get; set; } = true;
 
         // Highlight pulse animation
         public bool HighlightPulse { get; set; } = true;

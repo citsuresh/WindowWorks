@@ -10,9 +10,10 @@
         </Grid.ColumnDefinitions>
 
         <!-- Navigation list -->
-        <ListBox x:Name="NavList" Grid.Column="0" Margin="12" SelectionChanged="NavList_SelectionChanged">
+            <ListBox x:Name="NavList" Grid.Column="0" Margin="12" SelectionChanged="NavList_SelectionChanged">
             <ListBoxItem>General</ListBoxItem>
-            <ListBoxItem>Highlight &amp; HUD</ListBoxItem>
+            <ListBoxItem>Highlight</ListBoxItem>
+            <ListBoxItem>HUD</ListBoxItem>
             <ListBoxItem>Shortcuts</ListBoxItem>
         </ListBox>
 
