@@ -55,6 +55,11 @@ namespace WindowWorks.App.UI
             UpdatePreviewFontAndCorner();
         }
 
+        private void TxtHudDuration_TextChanged(object? sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            // No immediate visual preview needed for duration; handled by HUD when shown
+        }
+
         private void BtnHudFontUp_Click(object? sender, System.Windows.RoutedEventArgs e)
         {
             try { if (int.TryParse(TxtHudFontSize.Text, out var v)) TxtHudFontSize.Text = (v + 1).ToString(); else TxtHudFontSize.Text = "12"; UpdatePreviewFontAndCorner(); } catch { }
@@ -143,6 +148,7 @@ namespace WindowWorks.App.UI
             }
             if (d.TryGetValue("HudFontSize", out v) && v.TryGetInt32(out var fs)) TxtHudFontSize.Text = fs.ToString();
             if (d.TryGetValue("HudCornerRadius", out v) && v.TryGetInt32(out var cr)) TxtHudCorner.Text = cr.ToString();
+            if (d.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var dm)) TxtHudDuration.Text = dm.ToString();
             // Back-compat: if separate HudTransparencyPercent exists, use it only when color did not include alpha
             if (d.TryGetValue("HudTransparencyPercent", out v) && v.TryGetInt32(out var tp))
             {

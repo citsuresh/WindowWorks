@@ -41,13 +41,10 @@
         </StackPanel>
 
         <!-- moved transparency above thickness -->
+        <!-- Highlight duration -->
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="140">Highlight duration (ms)</TextBlock>
-            <TextBox x:Name="TxtHighlightMs" Width="120" Text="{Binding HighlightDurationMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Width="20" />
-            <!-- HUD duration not relevant for Highlight page; keep placeholder but disabled for clarity -->
-            <TextBlock Width="140">HUD duration (ms)</TextBlock>
-            <TextBox x:Name="TxtHudMs" Width="60" IsEnabled="False" />
+            <TextBox x:Name="TxtHighlightMs" Width="120" Text="{Binding HighlightDurationMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextChanged="TxtHighlightMs_TextChanged" />
         </StackPanel>
         <!-- 'Use system accent colors' removed; app uses configured highlight color by default -->
         <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">Highlight Preview</TextBlock>

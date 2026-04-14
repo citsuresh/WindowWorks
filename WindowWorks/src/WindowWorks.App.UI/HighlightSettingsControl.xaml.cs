@@ -380,7 +380,6 @@ namespace WindowWorks.App.UI
             if (d.TryGetValue("HighlightBorderThickness", out v) && v.TryGetInt32(out var bt)) TxtBorderThickness.Text = bt.ToString();
             if (d.TryGetValue("HighlightCornerRadius", out v) && v.TryGetInt32(out var cr)) TxtCornerRadius.Text = cr.ToString();
             if (d.TryGetValue("HighlightDurationMs", out v) && v.TryGetInt32(out var hm)) TxtHighlightMs.Text = hm.ToString();
-            if (d.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var um)) TxtHudMs.Text = um.ToString();
             if (d.TryGetValue("HighlightBorderTransparencyPercent", out v) && v.TryGetInt32(out var tp))
             {
                 // explicit percent overrides alpha derived from color

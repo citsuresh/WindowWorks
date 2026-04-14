@@ -204,6 +204,7 @@ namespace WindowWorks.App.UI
                     var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
                     var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
                     var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
+                    var tbDuration = hud.FindName("TxtHudDuration") as System.Windows.Controls.TextBox;
                     if (tbBg != null)
                     {
                         var colorText = tbBg.Text?.Trim() ?? string.Empty;
@@ -247,6 +248,7 @@ namespace WindowWorks.App.UI
                         catch { }
                         settingsDict["HudBackgroundColor"] = finalColor;
                         settingsDict["HudTransparencyPercent"] = percent;
+                        if (tbDuration != null && int.TryParse(tbDuration.Text, out var dm)) settingsDict["HudDurationMs"] = dm;
                     }
                     if (tbFont != null && int.TryParse(tbFont.Text, out var fs)) settingsDict["HudFontSize"] = fs;
                     if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;

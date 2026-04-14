@@ -30,6 +30,11 @@
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock Width="220">HUD duration (ms)</TextBlock>
+            <TextBox x:Name="TxtHudDuration" Width="120" TextChanged="TxtHudDuration_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="220">Corner radius</TextBlock>
             <StackPanel Orientation="Horizontal">
                 <TextBox x:Name="TxtHudCorner" Width="60" TextChanged="TxtHudCorner_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
