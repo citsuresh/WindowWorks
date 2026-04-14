@@ -25,6 +25,25 @@ namespace WindowWorks.App
             var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings);
 
             var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog);
+            // Register UI services using a minimal local service collection (no external NuGet required)
+            try
+            {
+                var svcColl = new WindowWorks.App.UI.Services.SimpleServiceCollection();
+                svcColl.AddSingleton<WindowWorks.App.UI.Services.IDialogService, WindowWorks.App.UI.Services.DialogService>();
+                var provider = svcColl.BuildServiceProvider();
+                try
+                {
+                    var app = System.Windows.Application.Current as WindowWorks.App.UI.WpfApp;
+                    if (app != null)
+                    {
+                        app.Services = provider;
+                    }
+                }
+                catch { }
+                // Also expose provider via AppServices static so UI components can resolve services
+                try { WindowWorks.App.UI.AppServices.Provider = provider; } catch { }
+            }
+            catch { }
             Application.Run(context);
         }
     }

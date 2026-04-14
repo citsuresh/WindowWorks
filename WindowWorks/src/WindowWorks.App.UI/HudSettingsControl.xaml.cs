@@ -318,6 +318,20 @@ namespace WindowWorks.App.UI
                 // Keep legacy textbox in sync if present
                 var legacy = this.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
                 if (legacy != null) legacy.Text = ((int)(_transparencySlider?.Value ?? 0)).ToString();
+                // Also update the final color hex and update preview/textbox background together
+                try
+                {
+                    int percent = (int)(_transparencySlider?.Value ?? 0);
+                    // Parse existing color (may be #RRGGBB or #AARRGGBB or named)
+                    var baseCol = ParseColorFromString(TxtHudBackground.Text) ?? Colors.Transparent;
+                    byte alpha = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
+                    var finalHex = $"#{alpha:X2}{baseCol.R:X2}{baseCol.G:X2}{baseCol.B:X2}";
+                    try { TxtHudBackground.Text = finalHex; } catch { }
+                    // Ensure the textbox background and small preview reflect the new hex immediately
+                    try { UpdatePreviewFromText(); } catch { }
+                }
+                catch { }
+
                 UpdateAlphaPreview();
                 // Play preview when transparency changes
                 PlayPreview();
@@ -418,20 +432,29 @@ namespace WindowWorks.App.UI
                 if (_previewRect == null) return;
                 if (col.HasValue)
                 {
-                    _previewRect.Fill = new SolidColorBrush(col.Value);
-                    string hex = col.Value.A == 255
-                        ? $"#{col.Value.R:X2}{col.Value.G:X2}{col.Value.B:X2}"
-                        : $"#{col.Value.A:X2}{col.Value.R:X2}{col.Value.G:X2}{col.Value.B:X2}";
+                    // Determine effective alpha: prefer explicit alpha in the color text (#AARRGGBB),
+                    // otherwise use the current slider value to build the final color with alpha.
+                    byte effectiveAlpha = col.Value.A;
+                    if (string.IsNullOrWhiteSpace(txt) || !(txt.StartsWith("#") && txt.Length == 9))
+                    {
+                        // No explicit alpha in the string; use slider value if available
+                        int alphaPercent = (int)(_transparencySlider?.Value ?? 0);
+                        effectiveAlpha = (byte)(255 * (100 - Math.Clamp(alphaPercent, 0, 100)) / 100.0);
+                    }
+
+                    var colWithAlpha = Color.FromArgb(effectiveAlpha, col.Value.R, col.Value.G, col.Value.B);
+                    _previewRect.Fill = new SolidColorBrush(colWithAlpha);
+                    string hex = $"#{colWithAlpha.A:X2}{colWithAlpha.R:X2}{colWithAlpha.G:X2}{colWithAlpha.B:X2}";
                     _previewRect.ToolTip = hex;
-                    var lum = (0.299 * col.Value.R + 0.587 * col.Value.G + 0.114 * col.Value.B) / 255.0;
+                    var lum = (0.299 * colWithAlpha.R + 0.587 * colWithAlpha.G + 0.114 * colWithAlpha.B) / 255.0;
                     _previewRect.Stroke = lum < 0.5 ? Brushes.White : Brushes.Gray;
-                    // apply color as background of the textbox for inline preview
+                    // apply color as background of the textbox for inline preview (respect alpha)
                     try
                     {
                         var tb = this.FindName("TxtHudBackground") as System.Windows.Controls.TextBox;
                         if (tb != null)
                         {
-                            var brush = new SolidColorBrush(col.Value);
+                            var brush = new SolidColorBrush(colWithAlpha);
                             tb.Background = brush;
                             tb.Foreground = lum < 0.5 ? Brushes.White : Brushes.Black;
                             tb.ToolTip = hex;
@@ -466,9 +489,30 @@ namespace WindowWorks.App.UI
             try
             {
                 var s = text.Trim();
-                if (!s.StartsWith("#")) s = "#" + s;
-                var conv = ColorConverter.ConvertFromString(s);
-                if (conv is Color c) return c;
+                if (s.StartsWith("#")) s = s.Substring(1);
+                // Normalize to 6 or 8 hex digits
+                if (s.Length == 6)
+                {
+                    var r = byte.Parse(s.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
+                    var g = byte.Parse(s.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
+                    var b = byte.Parse(s.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
+                    return Color.FromArgb(255, r, g, b);
+                }
+                if (s.Length == 8)
+                {
+                    var a = byte.Parse(s.Substring(0, 2), System.Globalization.NumberStyles.HexNumber);
+                    var r = byte.Parse(s.Substring(2, 2), System.Globalization.NumberStyles.HexNumber);
+                    var g = byte.Parse(s.Substring(4, 2), System.Globalization.NumberStyles.HexNumber);
+                    var b = byte.Parse(s.Substring(6, 2), System.Globalization.NumberStyles.HexNumber);
+                    return Color.FromArgb(a, r, g, b);
+                }
+                // Fallback to ColorConverter for named colors or other formats
+                try
+                {
+                    var conv = ColorConverter.ConvertFromString(text);
+                    if (conv is Color c) return c;
+                }
+                catch { }
             }
             catch { }
             return null;

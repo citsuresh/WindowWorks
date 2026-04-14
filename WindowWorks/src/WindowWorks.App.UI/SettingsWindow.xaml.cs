@@ -80,7 +80,10 @@ namespace WindowWorks.App.UI
                     break;
                 case "Highlight":
                     var h = new HighlightSettingsControl();
-                    if (_initialDict != null) h.LoadFromDictionary(_initialDict);
+                    // Attach ViewModel and load data into it
+                    var vm = new WindowWorks.App.UI.ViewModels.HighlightSettingsViewModel();
+                    try { if (_initialDict != null) vm.LoadFromDictionary(_initialDict); } catch { }
+                    h.DataContext = vm;
                     ContentArea.Content = h;
                     break;
                 case "HUD":
@@ -128,6 +131,21 @@ namespace WindowWorks.App.UI
                         var sld = h.FindName("SldBorderTransparency") as System.Windows.Controls.Slider;
                         int percent = 0;
                         try { if (sld != null) percent = (int)sld.Value; else if (h.FindName("TxtBorderTransparencyValue") is System.Windows.Controls.TextBlock tv && int.TryParse(tv.Text, out var v)) percent = v; } catch { }
+
+                        // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
+                        try
+                        {
+                            if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
+                            {
+                                var aHex = colorText.Substring(1, 2);
+                                if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
+                                {
+                                    percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
+                                }
+                            }
+                        }
+                        catch { }
+
                         string finalColor = colorText;
                         try
                         {
@@ -193,6 +211,21 @@ namespace WindowWorks.App.UI
                         var sld = hud.FindName("SldTransparency") as System.Windows.Controls.Slider;
                         int percent = 0;
                         try { if (sld != null) percent = (int)sld.Value; else if (tbTrans != null && int.TryParse(tbTrans.Text, out var v)) percent = v; } catch { }
+
+                        // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
+                        try
+                        {
+                            if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
+                            {
+                                var aHex = colorText.Substring(1, 2);
+                                if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
+                                {
+                                    percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
+                                }
+                            }
+                        }
+                        catch { }
+
                         string finalColor = colorText;
                         try
                         {
