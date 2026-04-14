@@ -1,27 +1,55 @@
 ﻿<UserControl x:Class="WindowWorks.App.UI.HighlightSettingsControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Height="420" Width="520">
+    Height="420" Width="580">
     <StackPanel Margin="12">
-        <TextBlock FontSize="16" FontWeight="Bold">Highlight &amp; HUD</TextBlock>
+        <TextBlock FontSize="16" FontWeight="Bold">Highlight settings</TextBlock>
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="140">Border color (hex)</TextBlock>
-            <TextBox x:Name="TxtBorderColor" Width="200" />
+            <TextBox x:Name="TxtBorderColor" Width="200" TextChanged="TxtBorderColor_TextChanged" />
+            <Button x:Name="BtnChooseColor" Content="Choose..." Width="80" Margin="8,0,0,0" VerticalAlignment="Center" Click="BtnChooseColor_Click" />
+            <Rectangle x:Name="RectColorPreview" Width="28" Height="20" Stroke="Gray" StrokeThickness="1" Margin="8,0,0,0" VerticalAlignment="Center" />
+        </StackPanel>
+        <!-- Border transparency moved above thickness so it's more visible -->
+        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+            <TextBlock Width="140">Border transparency (%)</TextBlock>
+            <Slider x:Name="SldBorderTransparency" Width="214" Minimum="0" Maximum="100" ValueChanged="SldBorderTransparency_ValueChanged" />
+            <TextBlock x:Name="TxtBorderTransparencyValue" Width="40" TextAlignment="Center" Margin="6,0,0,0" />
         </StackPanel>
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="140">Border thickness (px)</TextBlock>
-            <TextBox x:Name="TxtBorderThickness" Width="60" />
+            <StackPanel Orientation="Horizontal">
+                <TextBox x:Name="TxtBorderThickness" Width="60" TextChanged="TxtBorderThickness_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+                <StackPanel Orientation="Horizontal" Margin="6,0,0,0">
+                    <RepeatButton x:Name="BtnBorderThicknessUp" Content="+" Width="24" Height="20" Delay="200" Interval="80" Click="BtnBorderThicknessUp_Click" />
+                    <RepeatButton x:Name="BtnBorderThicknessDown" Content="-" Width="24" Height="20" Margin="6,0,0,0" Delay="200" Interval="80" Click="BtnBorderThicknessDown_Click" />
+                </StackPanel>
+            </StackPanel>
             <TextBlock Width="20" />
             <TextBlock Width="140">Corner radius (px)</TextBlock>
-            <TextBox x:Name="TxtCornerRadius" Width="60" />
+            <StackPanel Orientation="Horizontal">
+                <TextBox x:Name="TxtCornerRadius" Width="60" TextChanged="TxtCornerRadius_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+                <StackPanel Orientation="Horizontal" Margin="6,0,0,0">
+                    <RepeatButton x:Name="BtnCornerRadiusUp" Content="+" Width="24" Height="20" Delay="200" Interval="80" Click="BtnCornerRadiusUp_Click" />
+                    <RepeatButton x:Name="BtnCornerRadiusDown" Content="-" Width="24" Height="20" Margin="6,0,0,0" Delay="200" Interval="80" Click="BtnCornerRadiusDown_Click" />
+                </StackPanel>
+            </StackPanel>
         </StackPanel>
+
+        <!-- moved transparency above thickness -->
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="140">Highlight duration (ms)</TextBlock>
-            <TextBox x:Name="TxtHighlightMs" Width="100" />
+            <TextBox x:Name="TxtHighlightMs" Width="120" TextChanged="TxtHighlightMs_TextChanged" />
             <TextBlock Width="20" />
             <TextBlock Width="140">HUD duration (ms)</TextBlock>
-            <TextBox x:Name="TxtHudMs" Width="100" />
+            <TextBox x:Name="TxtHudMs" Width="60" TextChanged="TxtHudMs_TextChanged" />
         </StackPanel>
-        <CheckBox x:Name="ChkUseSystemColors" Content="Use system accent colors" Margin="0,8,0,0" />
+        <!-- 'Use system accent colors' removed; app uses configured highlight color by default -->
+        <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">Highlight Preview</TextBlock>
+        <Border x:Name="HighlightPreviewBorder" Width="360" Height="80" CornerRadius="6" Margin="0,8,0,0" HorizontalAlignment="Left" Background="#00FFFFFF" BorderBrush="#888888" BorderThickness="2">
+            <Grid>
+                <TextBlock x:Name="HighlightPreviewLabel" Text="Sample Highlight" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="Black"/>
+            </Grid>
+        </Border>
     </StackPanel>
 </UserControl>

@@ -15,9 +15,6 @@ namespace WindowWorks.App.UI
         public ShortcutCaptureWindow()
         {
             InitializeComponent();
-            this.PreviewKeyDown += OnPreviewKeyDown;
-            this.PreviewMouseWheel += OnPreviewMouseWheel;
-            this.PreviewMouseDown += OnPreviewMouseDown;
         }
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -44,21 +41,41 @@ namespace WindowWorks.App.UI
         {
             var mods = Keyboard.Modifiers;
             if ((mods & ModifierKeys.Control) == 0) return;
-            Captured = "Ctrl+MouseWheel" + (e.Delta > 0 ? "+Up" : "+Down");
-            TxtCaptured.Text = Captured;
-            UpdateConflict();
-            e.Handled = true;
+            try
+            {
+                string s = "";
+                if ((mods & ModifierKeys.Control) != 0) s += "Ctrl+";
+                if ((mods & ModifierKeys.Alt) != 0) s += "Alt+";
+                if ((mods & ModifierKeys.Shift) != 0) s += "Shift+";
+                if ((mods & ModifierKeys.Windows) != 0) s += "Win+";
+                s += "MouseWheel" + (e.Delta > 0 ? "+Up" : "+Down");
+                Captured = s;
+                TxtCaptured.Text = Captured;
+                UpdateConflict();
+                e.Handled = true;
+            }
+            catch { }
         }
 
         private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
             var mods = Keyboard.Modifiers;
             if ((mods & ModifierKeys.Control) == 0) return;
-            string btn = e.ChangedButton == MouseButton.Left ? "Click" : e.ChangedButton.ToString();
-            Captured = "Ctrl+" + (mods.HasFlag(ModifierKeys.Alt) ? "Alt+" : "") + btn;
-            TxtCaptured.Text = Captured;
-            UpdateConflict();
-            e.Handled = true;
+            try
+            {
+                string s = "";
+                if ((mods & ModifierKeys.Control) != 0) s += "Ctrl+";
+                if ((mods & ModifierKeys.Alt) != 0) s += "Alt+";
+                if ((mods & ModifierKeys.Shift) != 0) s += "Shift+";
+                if ((mods & ModifierKeys.Windows) != 0) s += "Win+";
+                string btn = e.ChangedButton == MouseButton.Left ? "Click" : e.ChangedButton.ToString();
+                s += btn;
+                Captured = s;
+                TxtCaptured.Text = Captured;
+                UpdateConflict();
+                e.Handled = true;
+            }
+            catch { }
         }
 
         private void UpdateConflict()
@@ -68,7 +85,8 @@ namespace WindowWorks.App.UI
             // Also check system-wide conflict for keyboard shortcuts
             try { if (!conflict && !string.IsNullOrEmpty(Captured)) conflict = DetectSystemHotkeyConflict(Captured); } catch { }
             TxtConflict.Visibility = conflict ? Visibility.Visible : Visibility.Collapsed;
-            BtnOk.IsEnabled = !conflict; // prevent accepting conflicting shortcut
+            // Only enable OK when there is a captured gesture and it is not conflicting
+            BtnOk.IsEnabled = !string.IsNullOrEmpty(Captured) && !conflict;
         }
 
         // Attempt to detect system-wide registration conflicts for keyboard shortcuts.

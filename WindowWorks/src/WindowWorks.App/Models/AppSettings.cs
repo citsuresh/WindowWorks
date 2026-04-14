@@ -67,7 +67,7 @@ namespace WindowWorks.App.Models
         // Process whitelist/blacklist (process names without extension)
         public System.Collections.Generic.List<string> BlacklistProcesses { get; set; } = new();
         public System.Collections.Generic.List<string> WhitelistProcesses { get; set; } = new();
-        // Use system accent colors instead of custom defined colors
-        public bool UseSystemColors { get; set; } = true;
+        // Previously supported 'Use system accent colors' option removed.
+        // Application now always uses the configured HighlightBorderColor.
     }
 }

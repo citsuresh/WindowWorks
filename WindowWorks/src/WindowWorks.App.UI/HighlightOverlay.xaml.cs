@@ -14,13 +14,12 @@ namespace WindowWorks.App.UI
         public HighlightOverlay()
         {
             InitializeComponent();
-            // allow per-pixel transparency so the window background can be fully transparent
-            try { this.AllowsTransparency = true; } catch { }
-            try { this.Background = System.Windows.Media.Brushes.Transparent; } catch { }
-            // keep Border as visual fallback; window region will create the hollow border
-            try { BorderHighlight.Background = System.Windows.Media.Brushes.Transparent; } catch { }
-            BorderHighlight.Visibility = Visibility.Collapsed;
-            this.Loaded += (_, __) => {
+        }
+
+        private void OnLoaded(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
                 // ensure window is toolwindow so it doesn't appear in alt-tab
                 var hwnd = new WindowInteropHelper(this).Handle;
                 if (hwnd != IntPtr.Zero)
@@ -30,7 +29,8 @@ namespace WindowWorks.App.UI
                     ex |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_TRANSPARENT;
                     NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, ex);
                 }
-            };
+            }
+            catch { }
         }
 
         public void ShowAround(IntPtr hwnd, int durationMs = 1000)

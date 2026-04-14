@@ -11,14 +11,18 @@ namespace WindowWorks.App.UI
         public HudWindow()
         {
             InitializeComponent();
-            UndoButton.Click += (s, e) => {
-                try { ResetCloseTimer(); } catch { }
-                OnUndo?.Invoke();
-            };
-            ResetButton.Click += (s, e) => {
-                try { ResetCloseTimer(); } catch { }
-                OnReset?.Invoke();
-            };
+        }
+
+        private void UndoButton_Click(object? sender, RoutedEventArgs e)
+        {
+            try { ResetCloseTimer(); } catch { }
+            OnUndo?.Invoke();
+        }
+
+        private void ResetButton_Click(object? sender, RoutedEventArgs e)
+        {
+            try { ResetCloseTimer(); } catch { }
+            OnReset?.Invoke();
         }
 
         public Action? OnUndo { get; set; }

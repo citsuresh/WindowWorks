@@ -157,7 +157,7 @@ namespace WindowWorks.App
                             if (dict.TryGetValue("HighlightCornerRadius", out v) && v.TryGetInt32(out var ic)) _settings.HighlightCornerRadius = ic;
                             if (dict.TryGetValue("HighlightDurationMs", out v) && v.TryGetInt32(out var ih)) _settings.HighlightDurationMs = ih;
                             if (dict.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var iu)) _settings.HudDurationMs = iu;
-                            if (dict.TryGetValue("UseSystemColors", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.UseSystemColors = true; else if (dict.TryGetValue("UseSystemColors", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.UseSystemColors = false;
+                            // UseSystemColors removed - always use configured HighlightBorderColor
                             if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableHighlight = true; else if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableHighlight = false;
                             if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableConfirmations = true; else if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableConfirmations = false;
                             // hotkeys

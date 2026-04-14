@@ -90,18 +90,9 @@ namespace WindowWorks.App.UI
                     break;
                 case "Shortcuts":
                     var sControl = new ShortcutsSettingsControl();
-                    if (_initialDict != null) sControl.LoadFromSettings(_initialDict);
-                    sControl.HotkeysChanged += (ss, ee) => {
-                        // when hotkeys edited, update settings preview in memory so Save will persist
-                        try
-                        {
-                            var tb1 = sControl.FindName("TxtCommandPalette") as System.Windows.Controls.TextBox;
-                            var tb2 = sControl.FindName("TxtEmergencyReset") as System.Windows.Controls.TextBox;
-                            if (tb1 != null) _initialDict["HotkeyCommandPalette"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(tb1.Text).ToString() + "\"").RootElement;
-                            if (tb2 != null) _initialDict["HotkeyEmergencyReset"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(tb2.Text).ToString() + "\"").RootElement;
-                        }
-                        catch { }
-                    };
+                    if (_initialDict != null) sControl.LoadFromDictionary(_initialDict);
+                    // Subscribe to simple CLR event in case parent needs to react; control updates the dictionary itself.
+                    sControl.HotkeysChanged += (ctrl) => { /* no-op */ };
                     ContentArea.Content = sControl;
                     break;
 
@@ -129,7 +120,38 @@ namespace WindowWorks.App.UI
                     var tbHighlight = h.FindName("TxtHighlightMs") as System.Windows.Controls.TextBox;
                     var tbHud = h.FindName("TxtHudMs") as System.Windows.Controls.TextBox;
                     var chkSys = h.FindName("ChkUseSystemColors") as System.Windows.Controls.CheckBox;
-                    if (tbColor != null) settingsDict["HighlightBorderColor"] = tbColor.Text?.Trim();
+                    if (tbColor != null)
+                    {
+                        // Combine color and transparency into #AARRGGBB when possible.
+                        var colorText = tbColor.Text?.Trim() ?? string.Empty;
+                        // determine transparency slider if present
+                        var sld = h.FindName("SldBorderTransparency") as System.Windows.Controls.Slider;
+                        int percent = 0;
+                        try { if (sld != null) percent = (int)sld.Value; else if (h.FindName("TxtBorderTransparencyValue") is System.Windows.Controls.TextBlock tv && int.TryParse(tv.Text, out var v)) percent = v; } catch { }
+                        string finalColor = colorText;
+                        try
+                        {
+                            string baseHex = colorText ?? string.Empty;
+                            if (!string.IsNullOrWhiteSpace(baseHex))
+                            {
+                                if (baseHex.StartsWith("#"))
+                                {
+                                    if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
+                                    else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
+                                }
+                                // ensure 6-digit base
+                                if (baseHex.Length == 6)
+                                {
+                                    var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
+                                    finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
+                                }
+                            }
+                        }
+                        catch { }
+                        settingsDict["HighlightBorderColor"] = finalColor;
+                        // also persist percent for backward compatibility
+                        settingsDict["HighlightBorderTransparencyPercent"] = percent;
+                    }
                     if (tbBorder != null && int.TryParse(tbBorder.Text, out var bt)) settingsDict["HighlightBorderThickness"] = bt;
                     if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HighlightCornerRadius"] = cr;
                     if (tbHighlight != null && int.TryParse(tbHighlight.Text, out var hm)) settingsDict["HighlightDurationMs"] = hm;
@@ -164,8 +186,35 @@ namespace WindowWorks.App.UI
                     var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
                     var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
                     var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
-                    if (tbBg != null) settingsDict["HudBackgroundColor"] = tbBg.Text?.Trim();
-                    if (tbTrans != null && int.TryParse(tbTrans.Text, out var tp)) settingsDict["HudTransparencyPercent"] = tp;
+                    if (tbBg != null)
+                    {
+                        var colorText = tbBg.Text?.Trim() ?? string.Empty;
+                        // prefer slider value for transparency if present
+                        var sld = hud.FindName("SldTransparency") as System.Windows.Controls.Slider;
+                        int percent = 0;
+                        try { if (sld != null) percent = (int)sld.Value; else if (tbTrans != null && int.TryParse(tbTrans.Text, out var v)) percent = v; } catch { }
+                        string finalColor = colorText;
+                        try
+                        {
+                            string baseHex = colorText ?? string.Empty;
+                            if (!string.IsNullOrWhiteSpace(baseHex))
+                            {
+                                if (baseHex.StartsWith("#"))
+                                {
+                                    if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
+                                    else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
+                                }
+                                if (baseHex.Length == 6)
+                                {
+                                    var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
+                                    finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
+                                }
+                            }
+                        }
+                        catch { }
+                        settingsDict["HudBackgroundColor"] = finalColor;
+                        settingsDict["HudTransparencyPercent"] = percent;
+                    }
                     if (tbFont != null && int.TryParse(tbFont.Text, out var fs)) settingsDict["HudFontSize"] = fs;
                     if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;
                     if (chkOpacity != null) settingsDict["ShowHudOnOpacityChange"] = chkOpacity.IsChecked == true;

@@ -3,6 +3,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Height="40" Width="300">
     <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="4" Padding="4">
-        <TextBox x:Name="ShortcutTextBox" IsReadOnly="True" VerticalAlignment="Center" HorizontalAlignment="Stretch"/>
+        <TextBox x:Name="ShortcutTextBox" IsReadOnly="True" VerticalAlignment="Center" HorizontalAlignment="Stretch" PreviewKeyDown="OnPreviewKeyDown"/>
     </Border>
 </UserControl>

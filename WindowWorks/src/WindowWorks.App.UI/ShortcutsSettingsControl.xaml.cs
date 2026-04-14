@@ -1,21 +1,18 @@
+using System.Windows;
 using System.Windows.Controls;
 
 namespace WindowWorks.App.UI
 {
     public partial class ShortcutsSettingsControl : UserControl
     {
-        public event EventHandler? HotkeysChanged;
+        private System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? _initialDict;
+        // Simple CLR event for change notifications (preferable for MVVM transition)
+        public event Action<ShortcutsSettingsControl>? HotkeysChanged;
 
         public ShortcutsSettingsControl()
         {
             InitializeComponent();
-            PickerCommandPalette.ShortcutChanged += OnShortcutChanged;
-            PickerEmergencyReset.ShortcutChanged += OnShortcutChanged;
-            // Opacity nudge and Toggle Topmost remain mouse gestures; do not expose keyboard shortcuts here.
-            try { var b = this.FindName("BtnEditCommand") as System.Windows.Controls.Button; if (b != null) b.Click += BtnEditCommand_Click; } catch { }
-            try { var b2 = this.FindName("BtnEditEmergency") as System.Windows.Controls.Button; if (b2 != null) b2.Click += BtnEditEmergency_Click; } catch { }
-            try { var b3 = this.FindName("BtnEditOpacity") as System.Windows.Controls.Button; if (b3 != null) b3.Click += BtnEditOpacity_Click; } catch { }
-            try { var b4 = this.FindName("BtnEditToggle") as System.Windows.Controls.Button; if (b4 != null) b4.Click += BtnEditToggle_Click; } catch { }
+            // ShortcutChanged handlers are wired in XAML (ShortcutChanged="OnShortcutChanged")
         }
 
         public void LoadFromSettings(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
@@ -27,10 +24,18 @@ namespace WindowWorks.App.UI
             ValidateConflicts();
         }
 
+        public void LoadFromDictionary(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
+        {
+            _initialDict = d;
+            if (_initialDict != null) LoadFromSettings(_initialDict);
+        }
+
         private void OnHotkeyTextChanged(object? sender, System.Windows.Controls.TextChangedEventArgs e)
         {
             ValidateConflicts();
-            HotkeysChanged?.Invoke(this, EventArgs.Empty);
+            UpdateInitialDictFromUi();
+            // Notify parent via CLR event
+            HotkeysChanged?.Invoke(this);
         }
 
         private void ValidateConflicts()
@@ -84,13 +89,15 @@ namespace WindowWorks.App.UI
             {
                 // Handle Command palette shortcut change
                 ValidateConflicts();
-                HotkeysChanged?.Invoke(this, EventArgs.Empty);
+                UpdateInitialDictFromUi();
+                HotkeysChanged?.Invoke(this);
             }
             else if (sender == PickerEmergencyReset)
             {
                 // Handle Emergency Reset shortcut change
                 ValidateConflicts();
-                HotkeysChanged?.Invoke(this, EventArgs.Empty);
+                UpdateInitialDictFromUi();
+                HotkeysChanged?.Invoke(this);
             }
             // Only handle editable keyboard pickers
         }
@@ -112,6 +119,8 @@ namespace WindowWorks.App.UI
             {
                 var win = new ShortcutCaptureWindow();
                 win.Owner = System.Windows.Window.GetWindow(this);
+                // Show current gesture in the capture UI when available
+                try { var cur = LblOpacityGesture.Text; if (!string.IsNullOrWhiteSpace(cur)) win.TxtCurrent.Text = cur; } catch { }
                 win.ConflictChecker = (cap) =>
                 {
                     // check against existing keyboard hotkeys
@@ -123,7 +132,8 @@ namespace WindowWorks.App.UI
                 {
                     // Persist gesture label in UI; actual wiring is done in HotkeyManager via settings
                     LblOpacityGesture.Text = win.Captured;
-                    HotkeysChanged?.Invoke(this, EventArgs.Empty);
+                    UpdateInitialDictFromUi();
+                    HotkeysChanged?.Invoke(this);
                 }
             }
             catch { }
@@ -136,6 +146,8 @@ namespace WindowWorks.App.UI
             {
                 var win = new ShortcutCaptureWindow();
                 win.Owner = System.Windows.Window.GetWindow(this);
+                // Show current gesture in the capture UI when available
+                try { var cur = LblToggleGesture.Text; if (!string.IsNullOrWhiteSpace(cur)) win.TxtCurrent.Text = cur; } catch { }
                 win.ConflictChecker = (cap) =>
                 {
                     if (!string.IsNullOrWhiteSpace(PickerCommandPalette.Shortcut) && PickerCommandPalette.Shortcut == cap) return true;
@@ -145,7 +157,8 @@ namespace WindowWorks.App.UI
                 if (win.ShowDialog() == true && !string.IsNullOrWhiteSpace(win.Captured))
                 {
                     LblToggleGesture.Text = win.Captured;
-                    HotkeysChanged?.Invoke(this, EventArgs.Empty);
+                    UpdateInitialDictFromUi();
+                    HotkeysChanged?.Invoke(this);
                 }
             }
             catch { }
@@ -175,8 +188,28 @@ namespace WindowWorks.App.UI
                         try { if (picker == PickerCommandPalette && this.FindName("LblCommandDisplay") is System.Windows.Controls.TextBlock tb) tb.Text = win.Captured; } catch { }
                         try { if (picker == PickerEmergencyReset && this.FindName("LblEmergencyDisplay") is System.Windows.Controls.TextBlock tb2) tb2.Text = win.Captured; } catch { }
                         ValidateConflicts();
-                        HotkeysChanged?.Invoke(this, EventArgs.Empty);
+                        UpdateInitialDictFromUi();
+                        HotkeysChanged?.Invoke(this);
                     }
+                }
+            }
+            catch { }
+        }
+
+        private void UpdateInitialDictFromUi()
+        {
+            try
+            {
+                if (_initialDict == null) return;
+                var cmd = PickerCommandPalette?.Shortcut;
+                var ers = PickerEmergencyReset?.Shortcut;
+                if (!string.IsNullOrWhiteSpace(cmd))
+                {
+                    _initialDict["HotkeyCommandPalette"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(cmd).ToString() + "\"").RootElement;
+                }
+                if (!string.IsNullOrWhiteSpace(ers))
+                {
+                    _initialDict["HotkeyEmergencyReset"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(ers).ToString() + "\"").RootElement;
                 }
             }
             catch { }

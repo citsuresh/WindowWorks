@@ -22,7 +22,6 @@ namespace WindowWorks.App
         private NumericUpDown nudCornerRadius;
         private NumericUpDown nudHighlightMs;
         private NumericUpDown nudHudMs;
-        private CheckBox chkUseSystemColors;
 
         public Models.AppSettings ResultSettings { get; private set; }
 
@@ -40,7 +39,7 @@ namespace WindowWorks.App
                 HudBackgroundColor = current.HudBackgroundColor,
                 HudFontSize = current.HudFontSize,
                 HudCornerRadius = current.HudCornerRadius,
-                UseSystemColors = current.UseSystemColors,
+                // UseSystemColors removed - keep explicit HighlightBorderColor only
                 EnableHighlight = current.EnableHighlight,
                 EnableConfirmations = current.EnableConfirmations
             };
@@ -132,7 +131,6 @@ namespace WindowWorks.App
             nudCornerRadius = new NumericUpDown() { Left = 100, Top = 48, Width = 80, Minimum = 0, Maximum = 50 };
             nudHighlightMs = new NumericUpDown() { Left = 8, Top = 88, Width = 100, Minimum = 100, Maximum = 10000, Increment = 100 };
             nudHudMs = new NumericUpDown() { Left = 120, Top = 88, Width = 100, Minimum = 100, Maximum = 10000, Increment = 100 };
-            chkUseSystemColors = new CheckBox() { Left = 8, Top = 128, Width = 300, Text = "Use system accent colors" };
 
             // populate from ResultSettings
             txtBorderColor.Text = ResultSettings.HighlightBorderColor;
@@ -140,7 +138,7 @@ namespace WindowWorks.App
             nudCornerRadius.Value = Math.Max(0, ResultSettings.HighlightCornerRadius);
             nudHighlightMs.Value = Math.Max(100, ResultSettings.HighlightDurationMs);
             nudHudMs.Value = Math.Max(100, ResultSettings.HudDurationMs);
-            chkUseSystemColors.Checked = ResultSettings.UseSystemColors;
+            // UseSystemColors removed; no corresponding control
         }
 
         private void RenderGeneralPage()
@@ -163,7 +161,7 @@ namespace WindowWorks.App
             contentPanel.Controls.Add(nudHighlightMs);
             contentPanel.Controls.Add(new Label() { Text = "HUD duration (ms)", Left = 120, Top = 112 });
             contentPanel.Controls.Add(nudHudMs);
-            contentPanel.Controls.Add(chkUseSystemColors);
+            // UseSystemColors removed; nothing to add
         }
 
         private void RenderPresetsPage()
@@ -198,7 +196,7 @@ namespace WindowWorks.App
             ResultSettings.HighlightCornerRadius = (int)nudCornerRadius.Value;
             ResultSettings.HighlightDurationMs = (int)nudHighlightMs.Value;
             ResultSettings.HudDurationMs = (int)nudHudMs.Value;
-            ResultSettings.UseSystemColors = chkUseSystemColors.Checked;
+            // UseSystemColors removed; no action
 
             DialogResult = DialogResult.OK;
             Close();

@@ -17,8 +17,11 @@
             <ListBoxItem>Shortcuts</ListBoxItem>
         </ListBox>
 
-        <!-- Content area -->
-        <ContentControl x:Name="ContentArea" Grid.Column="1" Margin="12" />
+        <!-- Content area (scrollable to avoid cropping large pages) -->
+        <ScrollViewer Grid.Column="1" Margin="12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                      HorizontalContentAlignment="Left" VerticalContentAlignment="Top">
+            <ContentControl x:Name="ContentArea" HorizontalAlignment="Left" VerticalAlignment="Top" />
+        </ScrollViewer>
 
         <!-- Bottom buttons -->
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Grid.ColumnSpan="2" Margin="12">

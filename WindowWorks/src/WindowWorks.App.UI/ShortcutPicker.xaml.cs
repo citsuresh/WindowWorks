@@ -13,8 +13,7 @@ namespace WindowWorks.App.UI
         public ShortcutPicker()
         {
             InitializeComponent();
-            // The visual display is handled by DisplayText in XAML; keep PreviewKeyDown hookup if TextBox exists for legacy cases
-            try { if (this.FindName("ShortcutTextBox") is TextBox tb) tb.PreviewKeyDown += OnPreviewKeyDown; } catch { }
+            // The visual display is handled by DisplayText in XAML. PreviewKeyDown is wired in XAML now.
             try { if (this.FindName("DisplayText") is TextBlock dt) { /* no-op, display-only */ } } catch { }
         }
 

@@ -210,24 +210,8 @@ namespace WindowWorks.App
                             var settings = _settings ?? new Persistence().LoadSettings();
                             if (settings != null)
                             {
-                                // If configured to use system colors, try to obtain system accent color; fallback to configured
-                                if (settings.UseSystemColors)
-                                {
-                                    try
-                                    {
-                                        // Use Windows accent color via UWP/Win32 APIs if available; fall back to WPF SystemColors
-                                        var accent = System.Windows.SystemParameters.WindowGlassColor; // WPF system accent
-                                        overlay.SetBorderColor(accent.ToString());
-                                    }
-                                    catch
-                                    {
-                                        overlay.SetBorderColor(settings.HighlightBorderColor);
-                                    }
-                                }
-                                else
-                                {
-                                    overlay.SetBorderColor(settings.HighlightBorderColor);
-                                }
+                                // Always use configured highlight color; system-accent option was removed.
+                                overlay.SetBorderColor(settings.HighlightBorderColor);
                                 overlay.SetBorderThickness(settings.HighlightBorderThickness);
                                 overlay.SetCornerRadius(settings.HighlightCornerRadius);
                             }
