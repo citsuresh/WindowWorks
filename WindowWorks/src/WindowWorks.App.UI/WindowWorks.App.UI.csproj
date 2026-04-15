@@ -17,6 +17,12 @@
     <!-- Reference System.Windows.Forms for ColorDialog used in WPF settings control -->
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="appicon.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
   <!-- Remove explicit None/Pack entry for appicon.png; packed resources are handled by the Resource item above. -->
 
 </Project>
