@@ -66,6 +66,7 @@ namespace WindowWorks.App.UI.ViewModels
             if (!string.IsNullOrWhiteSpace(BorderColor)) d["HighlightBorderColor"] = BorderColor;
             d["HighlightBorderTransparencyPercent"] = BorderTransparencyPercent;
             d["HighlightBorderThickness"] = BorderThickness;
+            // Use legacy key name expected by other code: HighlightCornerRadius
             d["HighlightCornerRadius"] = CornerRadius;
             d["HighlightDurationMs"] = HighlightDurationMs;
             d["HudDurationMs"] = HudDurationMs;

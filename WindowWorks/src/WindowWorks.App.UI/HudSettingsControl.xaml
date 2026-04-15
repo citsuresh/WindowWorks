@@ -6,22 +6,22 @@
         <TextBlock FontSize="16" FontWeight="Bold">HUD settings</TextBlock>
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="220">Background color</TextBlock>
-            <TextBox x:Name="TxtHudBackground" Width="180" TextChanged="TxtHudBackground_TextChanged" />
+            <TextBox x:Name="TxtHudBackground" Width="180" Text="{Binding BackgroundColor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextChanged="TxtHudBackground_TextChanged" />
             <Button x:Name="BtnPickColor" Content="Choose..." Width="74" Margin="6,0,0,0" Click="BtnPickColor_Click" />
             <Rectangle x:Name="RectHudPreview" Width="28" Height="20" Stroke="Gray" StrokeThickness="1" Margin="8,0,0,0" VerticalAlignment="Center" />
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0" VerticalAlignment="Center">
             <TextBlock Width="220">Transparency (%)</TextBlock>
-            <Slider x:Name="SldTransparency" Width="214" Minimum="0" Maximum="100" ValueChanged="SldTransparency_ValueChanged" />
-            <TextBlock x:Name="TxtTransparencyValue" Width="40" TextAlignment="Center" Margin="6,0,0,0" />
+            <Slider x:Name="SldTransparency" Width="214" Minimum="0" Maximum="100" Value="{Binding TransparencyPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock x:Name="TxtTransparencyValue" Width="40" TextAlignment="Center" Margin="6,0,0,0" Text="{Binding TransparencyPercent}" />
             <Rectangle x:Name="RectHudPreviewWithAlpha" Width="28" Height="20" Stroke="Gray" StrokeThickness="1" Margin="8,0,0,0" VerticalAlignment="Center" />
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="220">Font size</TextBlock>
             <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="TxtHudFontSize" Width="60" TextChanged="TxtHudFontSize_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+                <TextBox x:Name="TxtHudFontSize" Width="60" Text="{Binding FontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextChanged="TxtHudFontSize_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
                 <StackPanel Orientation="Horizontal" Margin="6,0,0,0">
                     <RepeatButton x:Name="BtnHudFontUp" Content="+" Width="24" Height="20" Delay="200" Interval="80" Click="BtnHudFontUp_Click" />
                     <RepeatButton x:Name="BtnHudFontDown" Content="-" Width="24" Height="20" Margin="6,0,0,0" Delay="200" Interval="80" Click="BtnHudFontDown_Click" />
@@ -31,13 +31,13 @@
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="220">HUD duration (ms)</TextBlock>
-            <TextBox x:Name="TxtHudDuration" Width="120" TextChanged="TxtHudDuration_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+            <TextBox x:Name="TxtHudDuration" Width="120" Text="{Binding DurationMs, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextChanged="TxtHudDuration_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
         </StackPanel>
 
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
             <TextBlock Width="220">Corner radius</TextBlock>
             <StackPanel Orientation="Horizontal">
-                <TextBox x:Name="TxtHudCorner" Width="60" TextChanged="TxtHudCorner_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
+                <TextBox x:Name="TxtHudCorner" Width="60" Text="{Binding CornerRadius, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" TextChanged="TxtHudCorner_TextChanged" PreviewMouseWheel="NumericBox_PreviewMouseWheel" />
                 <StackPanel Orientation="Horizontal" Margin="6,0,0,0">
                     <RepeatButton x:Name="BtnHudCornerUp" Content="+" Width="24" Height="20" Delay="200" Interval="80" Click="BtnHudCornerUp_Click" />
                     <RepeatButton x:Name="BtnHudCornerDown" Content="-" Width="24" Height="20" Margin="6,0,0,0" Delay="200" Interval="80" Click="BtnHudCornerDown_Click" />
@@ -46,9 +46,9 @@
         </StackPanel>
 
         <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">Show HUD for</TextBlock>
-        <CheckBox x:Name="ChkOpacityHud" Content="Opacity changes" Margin="0,6,0,0" />
-        <CheckBox x:Name="ChkTopmostHud" Content="Topmost toggles" Margin="0,6,0,0" />
-        <CheckBox x:Name="ChkPresetHud" Content="Preset applied" Margin="0,6,0,0" />
+        <CheckBox x:Name="ChkOpacityHud" Content="Opacity changes" Margin="0,6,0,0" IsChecked="{Binding ShowOnOpacityChange, Mode=TwoWay}" />
+        <CheckBox x:Name="ChkTopmostHud" Content="Topmost toggles" Margin="0,6,0,0" IsChecked="{Binding ShowOnTopmostToggle, Mode=TwoWay}" />
+        <CheckBox x:Name="ChkPresetHud" Content="Preset applied" Margin="0,6,0,0" IsChecked="{Binding ShowOnPresetApplied, Mode=TwoWay}" />
 
         <!-- Embedded HUD preview (small live sample shown below settings) -->
         <Border x:Name="PreviewBorder" Width="360" Height="80" CornerRadius="6" Margin="0,12,0,0" HorizontalAlignment="Left" Background="#00FFFFFF" BorderBrush="#888888" BorderThickness="1">

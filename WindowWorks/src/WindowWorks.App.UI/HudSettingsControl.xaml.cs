@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.ComponentModel;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
@@ -26,7 +27,97 @@ namespace WindowWorks.App.UI
             SetupColorPickerUi();
             // Defer preview wiring until control is loaded so FindName lookups succeed
             this.Loaded += HudSettingsControl_Loaded;
+            // React to DataContext changes for MVVM
+            this.DataContextChanged += HudSettingsControl_DataContextChanged;
             // Event handlers and mouse-wheel are wired in XAML now; no runtime hookup required.
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            try
+            {
+                var vm = sender as WindowWorks.App.UI.ViewModels.HudSettingsViewModel ?? this.DataContext as WindowWorks.App.UI.ViewModels.HudSettingsViewModel;
+                if (vm == null) return;
+
+                if (e.PropertyName == nameof(vm.BackgroundColor))
+                {
+                    // Use VM value directly to update preview
+                    Dispatcher.Invoke(() =>
+                    {
+                        try { TxtHudBackground.Text = vm.BackgroundColor ?? string.Empty; } catch { }
+                        try { UpdatePreviewFromText(); } catch { }
+                    });
+                }
+                else if (e.PropertyName == nameof(vm.TransparencyPercent))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        try { if (SldTransparency != null) SldTransparency.Value = vm.TransparencyPercent; } catch { }
+                        try { if (_transparencyValueText != null) _transparencyValueText.Text = vm.TransparencyPercent.ToString(); } catch { }
+                        // Recompute final hex and update textbox/preview
+                        try
+                        {
+                            var parsed = ParseColorFromString(vm.BackgroundColor) ?? Colors.Transparent;
+                            byte alpha = (byte)(255 * (100 - Math.Clamp(vm.TransparencyPercent, 0, 100)) / 100.0);
+                            var finalHex = $"#{alpha:X2}{parsed.R:X2}{parsed.G:X2}{parsed.B:X2}";
+                            try { TxtHudBackground.Text = finalHex; } catch { }
+                            try { UpdatePreviewFromText(); } catch { }
+                        }
+                        catch { }
+                        try { UpdateAlphaPreview(); } catch { }
+                    });
+                }
+                else if (e.PropertyName == nameof(vm.FontSize))
+                {
+                    Dispatcher.Invoke(() => { try { TxtHudFontSize.Text = vm.FontSize.ToString(); } catch { } UpdatePreviewFontAndCorner(); });
+                }
+                else if (e.PropertyName == nameof(vm.CornerRadius))
+                {
+                    Dispatcher.Invoke(() => { try { TxtHudCorner.Text = vm.CornerRadius.ToString(); } catch { } UpdatePreviewFontAndCorner(); });
+                }
+                else if (e.PropertyName == nameof(vm.DurationMs))
+                {
+                    Dispatcher.Invoke(() => { try { TxtHudDuration.Text = vm.DurationMs.ToString(); } catch { } });
+                }
+                else if (e.PropertyName == nameof(vm.ShowOnOpacityChange) || e.PropertyName == nameof(vm.ShowOnTopmostToggle) || e.PropertyName == nameof(vm.ShowOnPresetApplied))
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        try { ChkOpacityHud.IsChecked = vm.ShowOnOpacityChange; } catch { }
+                        try { ChkTopmostHud.IsChecked = vm.ShowOnTopmostToggle; } catch { }
+                        try { ChkPresetHud.IsChecked = vm.ShowOnPresetApplied; } catch { }
+                    });
+                }
+            }
+            catch { }
+        }
+
+        private void HudSettingsControl_DataContextChanged(object? sender, DependencyPropertyChangedEventArgs e)
+        {
+            try
+            {
+                if (e.OldValue is System.ComponentModel.INotifyPropertyChanged oldNpc) oldNpc.PropertyChanged -= ViewModel_PropertyChanged;
+                if (e.NewValue is System.ComponentModel.INotifyPropertyChanged npc) npc.PropertyChanged += ViewModel_PropertyChanged;
+
+                // When DataContext changes, sync UI previews from VM
+                var vm = this.DataContext as WindowWorks.App.UI.ViewModels.HudSettingsViewModel;
+                if (vm != null)
+                {
+                    try { TxtHudBackground.Text = vm.BackgroundColor ?? string.Empty; } catch { }
+                    try { if (SldTransparency != null) SldTransparency.Value = vm.TransparencyPercent; } catch { }
+                    try { TxtHudFontSize.Text = vm.FontSize.ToString(); } catch { }
+                    try { TxtHudCorner.Text = vm.CornerRadius.ToString(); } catch { }
+                    try { TxtHudDuration.Text = vm.DurationMs.ToString(); } catch { }
+                    try { ChkOpacityHud.IsChecked = vm.ShowOnOpacityChange; } catch { }
+                    try { ChkTopmostHud.IsChecked = vm.ShowOnTopmostToggle; } catch { }
+                    try { ChkPresetHud.IsChecked = vm.ShowOnPresetApplied; } catch { }
+
+                    UpdatePreviewFromText();
+                    UpdateTransparencyDisplay();
+                    UpdateAlphaPreview();
+                }
+            }
+            catch { }
         }
 
         private void HudSettingsControl_Loaded(object? sender, RoutedEventArgs e)
@@ -118,70 +209,7 @@ namespace WindowWorks.App.UI
             catch { }
         }
 
-        public void LoadFromDictionary(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement> d)
-        {
-            if (d == null) return;
-            // Background color may include alpha as #AARRGGBB. If so, extract alpha into the transparency slider.
-            if (d.TryGetValue("HudBackgroundColor", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String)
-            {
-                var colorText = v.GetString() ?? string.Empty;
-                TxtHudBackground.Text = colorText;
-                try
-                {
-                    if (!string.IsNullOrWhiteSpace(colorText) && colorText.Trim().StartsWith("#") && colorText.Trim().Length == 9)
-                    {
-                        // #AARRGGBB
-                        var aHex = colorText.Trim().Substring(1, 2);
-                        if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
-                        {
-                            int percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
-                            var sld = this.FindName("SldTransparency") as System.Windows.Controls.Slider;
-                            var legacy = this.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
-                            var txt = this.FindName("TxtTransparencyValue") as System.Windows.Controls.TextBlock;
-                            if (sld != null) sld.Value = percent;
-                            if (legacy != null) legacy.Text = percent.ToString();
-                            if (txt != null) txt.Text = percent.ToString();
-                        }
-                    }
-                }
-                catch { }
-            }
-            if (d.TryGetValue("HudFontSize", out v) && v.TryGetInt32(out var fs)) TxtHudFontSize.Text = fs.ToString();
-            if (d.TryGetValue("HudCornerRadius", out v) && v.TryGetInt32(out var cr)) TxtHudCorner.Text = cr.ToString();
-            if (d.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var dm)) TxtHudDuration.Text = dm.ToString();
-            // Back-compat: if separate HudTransparencyPercent exists, use it only when color did not include alpha
-            if (d.TryGetValue("HudTransparencyPercent", out v) && v.TryGetInt32(out var tp))
-            {
-                var sld = this.FindName("SldTransparency") as System.Windows.Controls.Slider;
-                var legacy = this.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
-                var txt = this.FindName("TxtTransparencyValue") as System.Windows.Controls.TextBlock;
-                if (sld != null && (sld.Value == 0)) sld.Value = tp; // only set if not already set from color alpha
-                if (legacy != null && string.IsNullOrWhiteSpace(legacy.Text)) legacy.Text = tp.ToString();
-                if (txt != null && string.IsNullOrWhiteSpace(txt.Text)) txt.Text = tp.ToString();
-            }
-            if (d.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkOpacityHud.IsChecked = true; else if (d.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkOpacityHud.IsChecked = false;
-            if (d.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkTopmostHud.IsChecked = true; else if (d.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkTopmostHud.IsChecked = false;
-            if (d.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkPresetHud.IsChecked = true; else if (d.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkPresetHud.IsChecked = false;
-
-            // Ensure UI previews reflect loaded values. Defer playing the preview until
-            // the control is loaded/attached to the visual tree so the animation is visible.
-            try
-            {
-                Dispatcher.BeginInvoke(new System.Action(() =>
-                {
-                    try
-                    {
-                        UpdatePreviewFromText();
-                        UpdateTransparencyDisplay();
-                        UpdateAlphaPreview();
-                        // Show the embedded preview once when settings are loaded
-                        PlayPreview();
-                    }
-                    catch { }
-                }), System.Windows.Threading.DispatcherPriority.Loaded);
-            }
-            catch { }
-        }
+        // LoadFromDictionary removed: HUD control now uses HudSettingsViewModel for loading and state.
 
         private void BtnPickColor_Click(object sender, RoutedEventArgs e)
         {
@@ -332,7 +360,20 @@ namespace WindowWorks.App.UI
                     var baseCol = ParseColorFromString(TxtHudBackground.Text) ?? Colors.Transparent;
                     byte alpha = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
                     var finalHex = $"#{alpha:X2}{baseCol.R:X2}{baseCol.G:X2}{baseCol.B:X2}";
-                    try { TxtHudBackground.Text = finalHex; } catch { }
+                    try
+                    {
+                        // Update ViewModel if present
+                        if (this.DataContext is WindowWorks.App.UI.ViewModels.HudSettingsViewModel vm)
+                        {
+                            vm.BackgroundColor = finalHex;
+                            vm.TransparencyPercent = percent;
+                        }
+                        else
+                        {
+                            TxtHudBackground.Text = finalHex;
+                        }
+                    }
+                    catch { }
                     // Ensure the textbox background and small preview reflect the new hex immediately
                     try { UpdatePreviewFromText(); } catch { }
                 }
@@ -350,10 +391,24 @@ namespace WindowWorks.App.UI
             try
             {
                 var legacy = this.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
-                int val = 50;
-                if (legacy != null && int.TryParse(legacy.Text, out var v)) val = v;
-                if (_transparencySlider != null) _transparencySlider.Value = val;
-                if (_transparencyValueText != null) _transparencyValueText.Text = val.ToString();
+                // If a legacy textbox exists and contains a value, prefer it (back-compat).
+                if (legacy != null && int.TryParse(legacy.Text, out var legacyVal))
+                {
+                    if (_transparencySlider != null) _transparencySlider.Value = legacyVal;
+                    if (_transparencyValueText != null) _transparencyValueText.Text = legacyVal.ToString();
+                }
+                else
+                {
+                    // Otherwise preserve current slider value (likely set via ViewModel binding) and reflect it in the display.
+                    if (_transparencySlider != null && _transparencyValueText != null)
+                    {
+                        _transparencyValueText.Text = ((int)_transparencySlider.Value).ToString();
+                    }
+                    else if (_transparencyValueText != null)
+                    {
+                        _transparencyValueText.Text = "0";
+                    }
+                }
             }
             catch { }
         }

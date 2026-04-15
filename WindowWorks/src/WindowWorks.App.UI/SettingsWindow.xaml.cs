@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Diagnostics;
+using System.IO;
 
 namespace WindowWorks.App.UI
 {
@@ -66,6 +68,20 @@ namespace WindowWorks.App.UI
             }
         }
 
+        // Ensure WPF bindings on a control are pushed to their sources before reading ViewModel state.
+        private void UpdateBindingSource(FrameworkElement parent, string controlName, System.Windows.DependencyProperty dp)
+        {
+            try
+            {
+                if (parent == null) return;
+                var ctrl = parent.FindName(controlName) as FrameworkElement;
+                if (ctrl == null) return;
+                var be = System.Windows.Data.BindingOperations.GetBindingExpression(ctrl, dp);
+                be?.UpdateSource();
+            }
+            catch { }
+        }
+
         private void NavList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
             var item = NavList.SelectedItem as System.Windows.Controls.ListBoxItem;
@@ -88,12 +104,32 @@ namespace WindowWorks.App.UI
                     break;
                 case "HUD":
                     var hud = new HudSettingsControl();
-                    if (_initialDict != null) hud.LoadFromDictionary(_initialDict);
+                    // Use MVVM: create a HudSettingsViewModel, load settings into it, and assign as DataContext
+                    try
+                    {
+                        var hudVm = new WindowWorks.App.UI.ViewModels.HudSettingsViewModel();
+                        if (_initialDict != null) hudVm.LoadFromDictionary(_initialDict);
+                        hud.DataContext = hudVm;
+                    }
+                    catch
+                    {
+                        // If VM setup fails, still show the control without pre-loading (legacy fallback removed)
+                    }
                     ContentArea.Content = hud;
                     break;
                 case "Shortcuts":
                     var sControl = new ShortcutsSettingsControl();
-                    if (_initialDict != null) sControl.LoadFromDictionary(_initialDict);
+                    // Use MVVM: create a ShortcutsSettingsViewModel, load settings into it, and assign as DataContext
+                    try
+                    {
+                        var sVm = new WindowWorks.App.UI.ViewModels.ShortcutsSettingsViewModel();
+                        if (_initialDict != null) sVm.LoadFromDictionary(_initialDict);
+                        sControl.DataContext = sVm;
+                    }
+                    catch
+                    {
+                        // If VM setup fails, fall back to control (legacy behavior removed)
+                    }
                     // Subscribe to simple CLR event in case parent needs to react; control updates the dictionary itself.
                     sControl.HotkeysChanged += (ctrl) => { /* no-op */ };
                     ContentArea.Content = sControl;
@@ -194,70 +230,100 @@ namespace WindowWorks.App.UI
                     if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
                     // Opacity nudge and Toggle Topmost are mouse gestures and are not saved as keyboard shortcuts.
                 }
-                // For HUD page, capture HUD visual settings
+                // For HUD page, capture HUD visual settings. Prefer ViewModel values when available (MVVM)
                 if (ContentArea.Content is HudSettingsControl hud)
                 {
-                    var tbBg = hud.FindName("TxtHudBackground") as System.Windows.Controls.TextBox;
-                    var tbTrans = hud.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
-                    var tbFont = hud.FindName("TxtHudFontSize") as System.Windows.Controls.TextBox;
-                    var tbCorner = hud.FindName("TxtHudCorner") as System.Windows.Controls.TextBox;
-                    var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
-                    var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
-                    var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
-                    var tbDuration = hud.FindName("TxtHudDuration") as System.Windows.Controls.TextBox;
-                    if (tbBg != null)
+                    if (hud.DataContext is WindowWorks.App.UI.ViewModels.HudSettingsViewModel hv)
                     {
-                        var colorText = tbBg.Text?.Trim() ?? string.Empty;
-                        // prefer slider value for transparency if present
-                        var sld = hud.FindName("SldTransparency") as System.Windows.Controls.Slider;
-                        int percent = 0;
-                        try { if (sld != null) percent = (int)sld.Value; else if (tbTrans != null && int.TryParse(tbTrans.Text, out var v)) percent = v; } catch { }
+                        // Ensure UI bindings have pushed latest values to the ViewModel
+                        UpdateBindingSource(hud, "TxtHudBackground", System.Windows.Controls.TextBox.TextProperty);
+                        UpdateBindingSource(hud, "TxtHudFontSize", System.Windows.Controls.TextBox.TextProperty);
+                        UpdateBindingSource(hud, "TxtHudCorner", System.Windows.Controls.TextBox.TextProperty);
+                        UpdateBindingSource(hud, "TxtHudDuration", System.Windows.Controls.TextBox.TextProperty);
+                        UpdateBindingSource(hud, "SldTransparency", System.Windows.Controls.Slider.ValueProperty);
+                        UpdateBindingSource(hud, "ChkOpacityHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
+                        UpdateBindingSource(hud, "ChkTopmostHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
+                        UpdateBindingSource(hud, "ChkPresetHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
 
-                        // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
-                        try
-                        {
-                            if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
-                            {
-                                var aHex = colorText.Substring(1, 2);
-                                if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
-                                {
-                                    percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
-                                }
-                            }
-                        }
-                        catch { }
-
-                        string finalColor = colorText;
-                        try
-                        {
-                            string baseHex = colorText ?? string.Empty;
-                            if (!string.IsNullOrWhiteSpace(baseHex))
-                            {
-                                if (baseHex.StartsWith("#"))
-                                {
-                                    if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
-                                    else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
-                                }
-                                if (baseHex.Length == 6)
-                                {
-                                    var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
-                                    finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
-                                }
-                            }
-                        }
-                        catch { }
-                        settingsDict["HudBackgroundColor"] = finalColor;
-                        settingsDict["HudTransparencyPercent"] = percent;
-                        if (tbDuration != null && int.TryParse(tbDuration.Text, out var dm)) settingsDict["HudDurationMs"] = dm;
+                        var dict = hv.ToDictionary();
+                        foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
                     }
-                    if (tbFont != null && int.TryParse(tbFont.Text, out var fs)) settingsDict["HudFontSize"] = fs;
-                    if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;
-                    if (chkOpacity != null) settingsDict["ShowHudOnOpacityChange"] = chkOpacity.IsChecked == true;
-                    if (chkTop != null) settingsDict["ShowHudOnTopmostToggle"] = chkTop.IsChecked == true;
-                    if (chkPreset != null) settingsDict["ShowHudOnPresetApplied"] = chkPreset.IsChecked == true;
+                    else
+                    {
+                        var tbBg = hud.FindName("TxtHudBackground") as System.Windows.Controls.TextBox;
+                        var tbTrans = hud.FindName("TxtTransparency") as System.Windows.Controls.TextBox;
+                        var tbFont = hud.FindName("TxtHudFontSize") as System.Windows.Controls.TextBox;
+                        var tbCorner = hud.FindName("TxtHudCorner") as System.Windows.Controls.TextBox;
+                        var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
+                        var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
+                        var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
+                        var tbDuration = hud.FindName("TxtHudDuration") as System.Windows.Controls.TextBox;
+                        if (tbBg != null)
+                        {
+                            var colorText = tbBg.Text?.Trim() ?? string.Empty;
+                            // prefer slider value for transparency if present
+                            var sld = hud.FindName("SldTransparency") as System.Windows.Controls.Slider;
+                            int percent = 0;
+                            try { if (sld != null) percent = (int)sld.Value; else if (tbTrans != null && int.TryParse(tbTrans.Text, out var v)) percent = v; } catch { }
+
+                            // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
+                            try
+                            {
+                                if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
+                                {
+                                    var aHex = colorText.Substring(1, 2);
+                                    if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
+                                    {
+                                        percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            string finalColor = colorText;
+                            try
+                            {
+                                string baseHex = colorText ?? string.Empty;
+                                if (!string.IsNullOrWhiteSpace(baseHex))
+                                {
+                                    if (baseHex.StartsWith("#"))
+                                    {
+                                        if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
+                                        else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
+                                    }
+                                    if (baseHex.Length == 6)
+                                    {
+                                        var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
+                                        finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
+                                    }
+                                }
+                            }
+                            catch { }
+                            settingsDict["HudBackgroundColor"] = finalColor;
+                            settingsDict["HudTransparencyPercent"] = percent;
+                            if (tbDuration != null && int.TryParse(tbDuration.Text, out var dm)) settingsDict["HudDurationMs"] = dm;
+                        }
+                        if (tbFont != null && int.TryParse(tbFont.Text, out var fs)) settingsDict["HudFontSize"] = fs;
+                        if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;
+                        if (chkOpacity != null) settingsDict["ShowHudOnOpacityChange"] = chkOpacity.IsChecked == true;
+                        if (chkTop != null) settingsDict["ShowHudOnTopmostToggle"] = chkTop.IsChecked == true;
+                        if (chkPreset != null) settingsDict["ShowHudOnPresetApplied"] = chkPreset.IsChecked == true;
+                    }
                 }
                 // Signal result as JSON and close
                 var json = JsonSerializer.Serialize(settingsDict);
+                // Emit a debug copy of the settings to help diagnose persistence issues
+                try
+                {
+                    var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WindowWorks");
+                    Directory.CreateDirectory(dir);
+                    var path = Path.Combine(dir, "settings-emitted.json");
+                    File.WriteAllText(path, json);
+                    Debug.WriteLine($"[SettingsWindow] Emitted settings to: {path}");
+                    Debug.WriteLine(json);
+                }
+                catch { }
+
                 _tcs?.TrySetResult(json);
             }
             catch

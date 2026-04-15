@@ -24,8 +24,10 @@ namespace WindowWorks.App.UI
             ValidateConflicts();
         }
 
+        // LoadFromDictionary is deprecated for Shortcuts; ShortcutsSettingsViewModel should be used as DataContext instead.
         public void LoadFromDictionary(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
         {
+            // Keep backward-compat shim: populate UI directly if control is used without VM
             _initialDict = d;
             if (_initialDict != null) LoadFromSettings(_initialDict);
         }

@@ -44,6 +44,8 @@ namespace WindowWorks.App
                     if (System.IO.File.Exists(localIco)) icoPath = localIco;
                 }
 
+
+
                 if (icoPath == null)
                 {
                     var alt = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appicon.ico");
@@ -157,6 +159,14 @@ namespace WindowWorks.App
                             if (dict.TryGetValue("HighlightCornerRadius", out v) && v.TryGetInt32(out var ic)) _settings.HighlightCornerRadius = ic;
                             if (dict.TryGetValue("HighlightDurationMs", out v) && v.TryGetInt32(out var ih)) _settings.HighlightDurationMs = ih;
                             if (dict.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var iu)) _settings.HudDurationMs = iu;
+                            // Apply HUD visual settings if provided
+                            if (dict.TryGetValue("HudBackgroundColor", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) _settings.HudBackgroundColor = v.GetString() ?? _settings.HudBackgroundColor;
+                            if (dict.TryGetValue("HudTransparencyPercent", out v) && v.TryGetInt32(out var htp)) _settings.HudTransparencyPercent = htp;
+                            if (dict.TryGetValue("HudFontSize", out v) && v.TryGetInt32(out var hfs)) _settings.HudFontSize = hfs;
+                            if (dict.TryGetValue("HudCornerRadius", out v) && v.TryGetInt32(out var hcr)) _settings.HudCornerRadius = hcr;
+                            if (dict.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnOpacityChange = true; else if (dict.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnOpacityChange = false;
+                            if (dict.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnTopmostToggle = true; else if (dict.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnTopmostToggle = false;
+                            if (dict.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnPresetApplied = true; else if (dict.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnPresetApplied = false;
                             // UseSystemColors removed - always use configured HighlightBorderColor
                             if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableHighlight = true; else if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableHighlight = false;
                             if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableConfirmations = true; else if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableConfirmations = false;
@@ -354,6 +364,14 @@ namespace WindowWorks.App
             {
                 try
                 {
+                    // Ensure visuals reflect current settings
+                    try
+                    {
+                        var bg = ComputeHudBackgroundHex();
+                        _activeHud.ApplyVisuals(bg, _settings.HudFontSize, _settings.HudCornerRadius);
+                    }
+                    catch { }
+
                     _activeHud.OnUndo = undo;
                     _activeHud.UpdateMessage(message);
                     _activeHud.UpdateProgress(progress);
@@ -394,6 +412,13 @@ namespace WindowWorks.App
                 }
             }
             _activeHud = new WindowWorks.App.UI.HudWindow();
+            // Apply current visuals from settings
+            try
+            {
+                var bg = ComputeHudBackgroundHex();
+                _activeHud.ApplyVisuals(bg, _settings.HudFontSize, _settings.HudCornerRadius);
+            }
+            catch { }
             _activeHud.OnUndo = undo;
             // Reset should restore opacity to 100% for the current target window and record a snapshot
             IntPtr actionHwndNew = targetHwnd ?? (_lastTargetHwnd != IntPtr.Zero ? _lastTargetHwnd : _windowManager.GetForegroundWindowHandle());
@@ -440,5 +465,40 @@ namespace WindowWorks.App
         {
             _notifyIcon?.Dispose();
         }
+
+        // Compute the final HUD background hex including alpha using stored settings.
+        // Returns a string in the form #AARRGGBB when possible, or the original setting as fallback.
+        private string? ComputeHudBackgroundHex()
+        {
+            try
+            {
+                var baseHex = _settings.HudBackgroundColor ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(baseHex) && baseHex.StartsWith("#"))
+                {
+                    var s = baseHex.Trim();
+                    if (s.Length == 9) return s; // already #AARRGGBB
+                    if (s.Length == 7)
+                    {
+                        int pct = Math.Clamp(_settings.HudTransparencyPercent, 0, 100);
+                        byte a = (byte)(255 * (100 - pct) / 100.0);
+                        var rgb = s.Substring(1);
+                        return $"#{a:X2}{rgb.ToUpperInvariant()}";
+                    }
+                }
+
+                // Fallback: try to parse named color using System.Drawing and apply alpha
+                try
+                {
+                    var c = System.Drawing.ColorTranslator.FromHtml(baseHex);
+                    int pct = Math.Clamp(_settings.HudTransparencyPercent, 0, 100);
+                    byte a = (byte)(255 * (100 - pct) / 100.0);
+                    return $"#{a:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
+                }
+                catch { }
+            }
+            catch { }
+            return _settings.HudBackgroundColor;
+        }
+        // Placeholder for future helper methods
     }
 }
