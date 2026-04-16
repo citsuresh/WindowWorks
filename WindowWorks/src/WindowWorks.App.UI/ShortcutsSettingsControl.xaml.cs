@@ -6,6 +6,7 @@ namespace WindowWorks.App.UI
     public partial class ShortcutsSettingsControl : UserControl
     {
         private System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? _initialDict;
+        private bool _suppressNotifications = false;
         // Simple CLR event for change notifications (preferable for MVVM transition)
         public event Action<ShortcutsSettingsControl>? HotkeysChanged;
 
@@ -18,10 +19,14 @@ namespace WindowWorks.App.UI
         public void LoadFromSettings(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
         {
             if (d == null) return;
+            _suppressNotifications = true;
             if (d.TryGetValue("HotkeyCommandPalette", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) PickerCommandPalette.Shortcut = v.GetString();
             if (d.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) PickerEmergencyReset.Shortcut = v.GetString();
-            // Opacity nudge and Toggle Topmost are mouse gestures; they are not loaded as keyboard hotkeys.
+            // Load persisted gestures and update visible labels
+            if (d.TryGetValue("HotkeyOpacityNudge", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) LblOpacityGesture.Text = v.GetString() ?? LblOpacityGesture.Text;
+            if (d.TryGetValue("HotkeyToggleTopmost", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) LblToggleGesture.Text = v.GetString() ?? LblToggleGesture.Text;
             ValidateConflicts();
+            _suppressNotifications = false;
         }
 
         // LoadFromDictionary is deprecated for Shortcuts; ShortcutsSettingsViewModel should be used as DataContext instead.
@@ -96,7 +101,7 @@ namespace WindowWorks.App.UI
             }
             else if (sender == PickerEmergencyReset)
             {
-                // Handle Emergency Reset shortcut change
+                // Handle Reset All shortcut change
                 ValidateConflicts();
                 UpdateInitialDictFromUi();
                 HotkeysChanged?.Invoke(this);
@@ -207,11 +212,12 @@ namespace WindowWorks.App.UI
                 var ers = PickerEmergencyReset?.Shortcut;
                 if (!string.IsNullOrWhiteSpace(cmd))
                 {
-                    _initialDict["HotkeyCommandPalette"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(cmd).ToString() + "\"").RootElement;
+                    // Use JsonSerializer.Serialize to produce a correctly escaped JSON string literal
+                    _initialDict["HotkeyCommandPalette"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(cmd)).RootElement;
                 }
                 if (!string.IsNullOrWhiteSpace(ers))
                 {
-                    _initialDict["HotkeyEmergencyReset"] = System.Text.Json.JsonDocument.Parse("\"" + System.Text.Json.JsonEncodedText.Encode(ers).ToString() + "\"").RootElement;
+                    _initialDict["HotkeyEmergencyReset"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ers)).RootElement;
                 }
             }
             catch { }

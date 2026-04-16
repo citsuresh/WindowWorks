@@ -11,5 +11,7 @@ namespace WindowWorks.App.UI
         {
             return Provider?.GetService(typeof(T)) as T;
         }
+        // In-process hotkey apply service for UI to notify host of changes
+        public static WindowWorks.App.UI.Services.IHotkeyApplyService? HotkeyApplyService { get; set; }
     }
 }

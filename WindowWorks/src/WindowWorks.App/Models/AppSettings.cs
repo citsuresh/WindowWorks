@@ -30,19 +30,23 @@ namespace WindowWorks.App.Models
 
         // Mouse gesture toggles
         public bool EnableCtrlWheelOpacity { get; set; } = true;
+        // Backwards-compatible flag name (legacy) and new flag for Ctrl+Shift topmost gesture.
+        // Leave both present so older settings files continue to work; host will prefer EnableCtrlShiftTopmost.
         public bool EnableCtrlAltTopmost { get; set; } = true;
+        public bool EnableCtrlShiftTopmost { get; set; } = true;
         // Click-through feature removed
         // public bool EnableCtrlShiftClickThrough { get; set; } = true;
 
         // Hotkey placeholders (stored but not wired here)
         public string HotkeyCommandPalette { get; set; } = "Win+`";
-        public string HotkeyEmergencyReset { get; set; } = "Win+Shift+R";
+        public string HotkeyEmergencyReset { get; set; } = "Ctrl+Alt+R";
 
         // NOTE: transparency/topmost gestures are mouse-based by default; no keyboard shortcuts stored here.
         
         // Configurable mouse gestures stored as strings (e.g. "Ctrl+MouseWheel+Up", "Ctrl+Alt+Click")
+        // These are configurable and persisted so users can customize gestures if desired.
         public string HotkeyOpacityNudge { get; set; } = "Ctrl+MouseWheel";
-        public string HotkeyToggleTopmost { get; set; } = "Ctrl+Alt+Click";
+        public string HotkeyToggleTopmost { get; set; } = "Ctrl+Shift+Click";
 
         // HUD visual settings
         public int HudFontSize { get; set; } = 13;

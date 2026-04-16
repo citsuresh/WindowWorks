@@ -132,7 +132,22 @@ namespace WindowWorks.App
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Onboarding", null, (s, e) => ShowOnboarding()));
             menu.Items.Add(new ToolStripMenuItem("Open presets folder", null, (s, e) => _persistence.OpenAppFolder())); // Ensure method reference remains if any items existed previously
-            menu.Items.Add(new ToolStripMenuItem("Emergency Reset", null, (s, e) => _auditLog.EmergencyReset(_windowManager)));
+            menu.Items.Add(new ToolStripMenuItem("Reset All", null, (s, e) =>
+            {
+                try
+                {
+                    var result = MessageBox.Show(
+                        "Are you sure you want to reset all window changes and snapshots? This cannot be undone.",
+                        "Confirm Reset All",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+                    if (result == DialogResult.Yes)
+                    {
+                        _auditLog.EmergencyReset(_windowManager);
+                    }
+                }
+                catch { }
+            }));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Exit", null, (s, e) => ExitRequested?.Invoke(this, EventArgs.Empty)));
 
@@ -171,8 +186,8 @@ namespace WindowWorks.App
                             if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableHighlight = true; else if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableHighlight = false;
                             if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableConfirmations = true; else if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableConfirmations = false;
                             // hotkeys
-                            if (dict.TryGetValue("HotkeyCommandPalette", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) _settings.HotkeyCommandPalette = v.GetString() ?? _settings.HotkeyCommandPalette;
-                            if (dict.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) _settings.HotkeyEmergencyReset = v.GetString() ?? _settings.HotkeyEmergencyReset;
+                            if (dict.TryGetValue("HotkeyCommandPalette", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) _settings.HotkeyCommandPalette = v.GetString();
+                            if (dict.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) _settings.HotkeyEmergencyReset = v.GetString();
                             try { _persistence.SaveSettings(_settings); } catch { }
                             // Re-apply hotkeys so changes take effect immediately
                             try { _hotkeyManager.ApplyHotkeySettings(_settings); } catch { }

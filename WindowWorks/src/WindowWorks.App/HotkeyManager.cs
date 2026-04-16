@@ -88,7 +88,7 @@ namespace WindowWorks.App
             // Install low-level mouse hook to detect Ctrl+Wheel and Ctrl+Click combos
             _mouseProc = LowLevelMouseProc;
             _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, IntPtr.Zero, 0);
-            DebugLog($"Start: mouseHook={( _mouseHook != IntPtr.Zero ? _mouseHook.ToString() : "NULL")} msgWindowHandle={( _msgWindow != null ? _msgWindow.Handle.ToString() : "NULL")} syncContext={( _syncContext != null ? "YES" : "NO")} settings.EnableCtrlWheelOpacity={_settings.EnableCtrlWheelOpacity} settings.EnableCtrlAltTopmost={_settings.EnableCtrlAltTopmost}");
+            DebugLog($"Start: mouseHook={( _mouseHook != IntPtr.Zero ? _mouseHook.ToString() : "NULL")} msgWindowHandle={( _msgWindow != null ? _msgWindow.Handle.ToString() : "NULL")} syncContext={( _syncContext != null ? "YES" : "NO")} settings.EnableCtrlWheelOpacity={_settings.EnableCtrlWheelOpacity} settings.EnableCtrlAltTopmost={_settings.EnableCtrlAltTopmost} settings.EnableCtrlShiftTopmost={_settings.EnableCtrlShiftTopmost}");
         }
 
         public void Dispose()
@@ -177,10 +177,11 @@ namespace WindowWorks.App
                     bool ctrl = (NativeMethods.GetAsyncKeyState((int)Keys.ControlKey) & 0x8000) != 0;
                     bool alt = (NativeMethods.GetAsyncKeyState((int)Keys.Menu) & 0x8000) != 0;
                     bool shift = (NativeMethods.GetAsyncKeyState((int)Keys.ShiftKey) & 0x8000) != 0;
-                    if (ctrl && alt && _settings.EnableCtrlAltTopmost)
+                    // Support both legacy Ctrl+Alt+Click and new Ctrl+Shift+Click gestures based on settings.
+                    if ((ctrl && alt && _settings.EnableCtrlAltTopmost) || (ctrl && shift && _settings.EnableCtrlShiftTopmost))
                     {
                         DebugLog($"Detected WM_LBUTTONDOWN ctrl={ctrl} alt={alt} shift={shift}");
-                        // Trigger toggle topmost on Ctrl+Alt+Click when enabled.
+                        // Trigger toggle topmost when enabled and matching configured gesture.
                         if (_syncContext != null)
                         {
                             _syncContext.Post(_ => ToggleTopmostRequested?.Invoke(this, EventArgs.Empty), null);
@@ -249,7 +250,7 @@ namespace WindowWorks.App
             // Unregister previous first
             UnregisterAllHotkeys();
 
-            // Register only the keyboard hotkeys exposed in settings (command palette and emergency reset)
+            // Register only the keyboard hotkeys exposed in settings (command palette and reset all)
             // Command palette
             if (!string.IsNullOrWhiteSpace(settings.HotkeyCommandPalette))
             {

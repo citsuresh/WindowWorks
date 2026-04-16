@@ -24,7 +24,7 @@ namespace WindowWorks.App
 
             var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings);
 
-            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog);
+            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings);
             // Register UI services using a minimal local service collection (no external NuGet required)
             try
             {
@@ -42,6 +42,13 @@ namespace WindowWorks.App
                 catch { }
                 // Also expose provider via AppServices static so UI components can resolve services
                 try { WindowWorks.App.UI.AppServices.Provider = provider; } catch { }
+                // Wire host-side HotkeyApplyService so UI can notify host to apply hotkeys in-process
+                try
+                {
+                    var hotkeyApply = new HotkeyApplyService(persistence, hotkeyManager, settings);
+                    WindowWorks.App.UI.AppServices.HotkeyApplyService = hotkeyApply;
+                }
+                catch { }
             }
             catch { }
             Application.Run(context);
@@ -56,7 +63,9 @@ namespace WindowWorks.App
         private readonly PresetManager _presetManager;
         private readonly Persistence _persistence;
         private readonly AuditLog _auditLog;
-        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog)
+        private readonly Models.AppSettings _settings;
+
+        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings)
         {
             _tray = tray;
             _hotkeyManager = hotkeyManager;
@@ -64,6 +73,7 @@ namespace WindowWorks.App
             _presetManager = presetManager;
             _persistence = persistence;
             _auditLog = auditLog;
+            _settings = settings;
 
             // Start managers that require message loop or hooks
             _hotkeyManager.Start();
@@ -75,19 +85,42 @@ namespace WindowWorks.App
 
         private void HotkeyManager_HotkeyPressed(object? sender, HotkeyEventArgs e)
         {
-            // Basic handling for Win+` to open command palette placeholder
-            if (e.Modifiers == HotkeyModifiers.Win && e.Key == Keys.Oem3) // Oem3 is the ` key
+            try
             {
-                // TODO: Show command palette UI. For now show onboarding overlay quickly.
-                var overlay = new UI.OnboardingOverlay();
-                overlay.ShowOverlay();
+                // Respect configured hotkeys from settings. If they match, act accordingly.
+                if (!string.IsNullOrWhiteSpace(_settings.HotkeyCommandPalette) && HotkeyManager.ParseHotkeyString(_settings.HotkeyCommandPalette, out var cmods, out var ckey))
+                {
+                    if (e.Modifiers == cmods && e.Key == ckey)
+                    {
+                        var overlay = new UI.OnboardingOverlay();
+                        overlay.ShowOverlay();
+                        return;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(_settings.HotkeyEmergencyReset) && HotkeyManager.ParseHotkeyString(_settings.HotkeyEmergencyReset, out var rmods, out var rkey))
+                {
+                    if (e.Modifiers == rmods && e.Key == rkey)
+                    {
+                        // Ask confirmation before reset
+                        try
+                        {
+                            var result = MessageBox.Show(
+                                "Are you sure you want to reset all window changes and snapshots? This cannot be undone.",
+                                "Confirm Reset All",
+                                MessageBoxButtons.YesNo,
+                                MessageBoxIcon.Warning);
+                            if (result == DialogResult.Yes)
+                            {
+                                _auditLog.EmergencyReset(_windowManager);
+                            }
+                        }
+                        catch { }
+                        return;
+                    }
+                }
             }
-            else if (e.Modifiers == (HotkeyModifiers.Win | HotkeyModifiers.Shift) && e.Key == Keys.R)
-            {
-                // Emergency reset
-                _auditLog.EmergencyReset(_windowManager);
-            }
-            // Note: click-through feature removed; Win+Shift+C disabled.
+            catch { }
         }
 
         private void Tray_ExitRequested(object? sender, EventArgs e)

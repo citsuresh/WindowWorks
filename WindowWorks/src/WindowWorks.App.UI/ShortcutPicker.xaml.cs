@@ -58,6 +58,8 @@ namespace WindowWorks.App.UI
             {
                 try { if (this.FindName("ShortcutTextBox") is TextBox tb) tb.Text = value; } catch { }
                 try { if (this.FindName("DisplayText") is TextBlock dt) dt.Text = value; } catch { }
+                // Fire change only when setter used programmatically
+                try { ShortcutChanged?.Invoke(this, value ?? string.Empty); } catch { }
             }
         }
 
