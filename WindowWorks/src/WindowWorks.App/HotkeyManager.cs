@@ -48,6 +48,9 @@ namespace WindowWorks.App
         public event EventHandler<HotkeyEventArgs>? HotkeyPressed;
         public event EventHandler<OpacityNudgeEventArgs>? OpacityNudgeRequested;
         public event EventHandler? ToggleTopmostRequested;
+        // Click-through gesture events (Phase 1)
+        public event EventHandler? ClickThroughGestureRequested;
+        public event EventHandler? ClickThroughResetRequested;
 
         private IntPtr _mouseHook = IntPtr.Zero;
         private NativeMethods.LowLevelMouseProc? _mouseProc;
@@ -107,6 +110,10 @@ namespace WindowWorks.App
 
         private void HandleHotkeyMessage(int id, HotkeyModifiers mods, Keys key)
         {
+            // Handle special registered hotkeys by id when known by convention
+            // id==2 is reserved for Click-Through Reset (Phase 1)
+            // id-based special handlers removed for Click-Through Reset to avoid conflicts.
+
             HotkeyPressed?.Invoke(this, new HotkeyEventArgs(mods, key));
         }
 
@@ -177,11 +184,25 @@ namespace WindowWorks.App
                     bool ctrl = (NativeMethods.GetAsyncKeyState((int)Keys.ControlKey) & 0x8000) != 0;
                     bool alt = (NativeMethods.GetAsyncKeyState((int)Keys.Menu) & 0x8000) != 0;
                     bool shift = (NativeMethods.GetAsyncKeyState((int)Keys.ShiftKey) & 0x8000) != 0;
-                    // Support both legacy Ctrl+Alt+Click and new Ctrl+Shift+Click gestures based on settings.
-                    if ((ctrl && alt && _settings.EnableCtrlAltTopmost) || (ctrl && shift && _settings.EnableCtrlShiftTopmost))
+                    // Support topmost / click-through gestures.
+                    // Detect Ctrl+Alt+Click for Click-Through Gesture Mode.
+                    // Ctrl+Alt+Click is reserved exclusively for Click-Through; when Click-Through is disabled it must do nothing.
+                    if (ctrl && alt && _settings.EnableClickThroughGestureMode)
+                    {
+                        DebugLog($"Detected ClickThrough gesture WM_LBUTTONDOWN ctrl={ctrl} alt={alt} shift={shift}");
+                        if (_syncContext != null)
+                        {
+                            _syncContext.Post(_ => ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty), null);
+                        }
+                        else
+                        {
+                            ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty);
+                        }
+                    }
+                    else if (ctrl && shift && _settings.EnableCtrlShiftTopmost)
                     {
                         DebugLog($"Detected WM_LBUTTONDOWN ctrl={ctrl} alt={alt} shift={shift}");
-                        // Trigger toggle topmost when enabled and matching configured gesture.
+                        // Trigger toggle topmost when enabled and matching configured gesture (Ctrl+Shift only).
                         if (_syncContext != null)
                         {
                             _syncContext.Post(_ => ToggleTopmostRequested?.Invoke(this, EventArgs.Empty), null);
@@ -191,9 +212,9 @@ namespace WindowWorks.App
                             ToggleTopmostRequested?.Invoke(this, EventArgs.Empty);
                         }
                     }
-                    else if (ctrl && shift)
+                    else
                     {
-                        // Click-through feature removed: gesture is ignored
+                        // No matching gesture. Note: Ctrl+Alt+Click is intentionally ignored here when Click-Through is disabled.
                     }
                 }
             }
@@ -285,6 +306,8 @@ namespace WindowWorks.App
             {
                 RegisterHotkey(1, HotkeyModifiers.Win | HotkeyModifiers.Shift, Keys.R);
             }
+
+            // NOTE: Click-Through Reset hotkey registration removed to avoid conflicts. Use tray menu or Gesture reset instead.
         }
 
         public static bool ParseHotkeyString(string s, out HotkeyModifiers mods, out Keys key)

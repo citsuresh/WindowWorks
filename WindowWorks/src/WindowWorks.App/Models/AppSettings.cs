@@ -48,6 +48,20 @@ namespace WindowWorks.App.Models
         public string HotkeyOpacityNudge { get; set; } = "Ctrl+MouseWheel";
         public string HotkeyToggleTopmost { get; set; } = "Ctrl+Shift+Click";
 
+        // Click-through feature settings (Phase 1: Gesture Mode)
+        // Enable Gesture Mode (Ctrl+Alt+Click by default)
+        public bool EnableClickThroughGestureMode { get; set; } = true;
+        // Gesture combination string persisted (e.g. "Ctrl+Alt+Click")
+        public string HotkeyClickThroughGesture { get; set; } = "Ctrl+Alt+Click";
+        // Reset shortcut for click-through gesture (global shortcut)
+        public string HotkeyClickThroughReset { get; set; } = "Ctrl+Alt+C";
+        // When true, automatically set transparency when enabling gesture mode
+        public bool ClickThrough_Gesture_AutoTransparency { get; set; } = false;
+        // Transparency percent to apply when enabling gesture mode
+        public int ClickThrough_Gesture_TransparencyPercent { get; set; } = 50;
+        // Show notification when gesture mode is enabled
+        public bool ClickThrough_Gesture_ShowNotification { get; set; } = true;
+
         // HUD visual settings
         public int HudFontSize { get; set; } = 13;
         public string HudBackgroundColor { get; set; } = "#88000000";

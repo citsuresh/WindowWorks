@@ -1,0 +1,97 @@
+using System.Windows;
+using System.Windows.Controls;
+
+namespace WindowWorks.App.UI
+{
+    public partial class SettingsTabClickThrough : UserControl
+    {
+        private TextBlock? _transparencyValueTextBlock;
+        // This control is a UI skeleton for Click-Through settings (Phase 1: Gesture Mode).
+        // Wire-up: call LoadFromSettings with settings dictionary to populate controls, and
+        // expose an API to write changes back to the settings dictionary.
+
+        public SettingsTabClickThrough()
+        {
+            InitializeComponent();
+            this.Loaded += SettingsTabClickThrough_Loaded;
+        }
+
+        private void SettingsTabClickThrough_Loaded(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var sld = this.FindName("SldGestureTransparency") as Slider;
+                if (sld != null)
+                {
+                    sld.ValueChanged += SldGestureTransparency_ValueChangedInternal;
+                    // Ensure a display TextBlock exists beside the slider and cache it for fast updates.
+                    _transparencyValueTextBlock = this.FindName("TxtGestureTransparencyValue") as TextBlock;
+                    if (_transparencyValueTextBlock == null)
+                    {
+                        if (sld.Parent is StackPanel sp)
+                        {
+                            _transparencyValueTextBlock = new TextBlock { Width = 40, Margin = new Thickness(6, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center, Text = ((int)sld.Value).ToString() + "%" };
+                            sp.Children.Add(_transparencyValueTextBlock);
+                        }
+                    }
+                    else
+                    {
+                        _transparencyValueTextBlock.Text = ((int)sld.Value).ToString() + "%";
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void SldGestureTransparency_ValueChangedInternal(object? sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            try
+            {
+                if (sender is Slider sld)
+                {
+                    if (_transparencyValueTextBlock != null)
+                    {
+                        _transparencyValueTextBlock.Text = ((int)sld.Value).ToString() + "%";
+                    }
+                    else
+                    {
+                        // Fallback: try FindName once
+                        var tb = this.FindName("TxtGestureTransparencyValue") as TextBlock;
+                        if (tb != null) tb.Text = ((int)sld.Value).ToString() + "%";
+                    }
+                }
+            }
+            catch { }
+        }
+
+        public void LoadFromSettings(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
+        {
+            if (d == null) return;
+            try
+            {
+                if (d.TryGetValue("EnableClickThroughGestureMode", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkEnableGesture.IsChecked = true; else if (d.TryGetValue("EnableClickThroughGestureMode", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkEnableGesture.IsChecked = false;
+                if (d.TryGetValue("ClickThrough_Gesture_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkGestureAutoTransparency.IsChecked = true; else if (d.TryGetValue("ClickThrough_Gesture_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkGestureAutoTransparency.IsChecked = false;
+                if (d.TryGetValue("ClickThrough_Gesture_TransparencyPercent", out v) && v.TryGetInt32(out var tp))
+                {
+                    SldGestureTransparency.Value = tp;
+                    // update cached text block if present
+                    if (_transparencyValueTextBlock != null) _transparencyValueTextBlock.Text = tp + "%";
+                }
+                if (d.TryGetValue("ClickThrough_Gesture_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkGestureNotify.IsChecked = true; else if (d.TryGetValue("ClickThrough_Gesture_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkGestureNotify.IsChecked = false;
+            }
+            catch { }
+        }
+
+        public void SaveToDictionary(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement> dict)
+        {
+            try
+            {
+                dict["EnableClickThroughGestureMode"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkEnableGesture.IsChecked ?? false)).RootElement;
+                dict["ClickThrough_Gesture_AutoTransparency"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkGestureAutoTransparency.IsChecked ?? false)).RootElement;
+                dict["ClickThrough_Gesture_TransparencyPercent"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize((int)SldGestureTransparency.Value)).RootElement;
+                dict["ClickThrough_Gesture_ShowNotification"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkGestureNotify.IsChecked ?? false)).RootElement;
+            }
+            catch { }
+        }
+    }
+}

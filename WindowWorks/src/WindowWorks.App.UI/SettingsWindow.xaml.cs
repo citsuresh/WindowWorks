@@ -134,6 +134,11 @@ namespace WindowWorks.App.UI
                     sControl.HotkeysChanged += (ctrl) => { /* no-op */ };
                     ContentArea.Content = sControl;
                     break;
+                case "Click-Through":
+                    var ct = new SettingsTabClickThrough();
+                    try { if (_initialDict != null) ct.LoadFromSettings(_initialDict); } catch { }
+                    ContentArea.Content = ct;
+                    break;
 
                 default:
                     ContentArea.Content = null;
@@ -229,6 +234,19 @@ namespace WindowWorks.App.UI
                     if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
                     if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
                     // Opacity nudge and Toggle Topmost are mouse gestures and are not saved as keyboard shortcuts.
+                }
+                // For Click-Through page, capture Gesture Mode settings
+                if (ContentArea.Content is SettingsTabClickThrough ct)
+                {
+                    var chkEnable = ct.FindName("ChkEnableGesture") as System.Windows.Controls.CheckBox;
+                    var chkAuto = ct.FindName("ChkGestureAutoTransparency") as System.Windows.Controls.CheckBox;
+                    var sld = ct.FindName("SldGestureTransparency") as System.Windows.Controls.Slider;
+                    var chkNotify = ct.FindName("ChkGestureNotify") as System.Windows.Controls.CheckBox;
+
+                    if (chkEnable != null) settingsDict["EnableClickThroughGestureMode"] = chkEnable.IsChecked == true;
+                    if (chkAuto != null) settingsDict["ClickThrough_Gesture_AutoTransparency"] = chkAuto.IsChecked == true;
+                    if (sld != null) settingsDict["ClickThrough_Gesture_TransparencyPercent"] = (int)sld.Value;
+                    if (chkNotify != null) settingsDict["ClickThrough_Gesture_ShowNotification"] = chkNotify.IsChecked == true;
                 }
                 // For HUD page, capture HUD visual settings. Prefer ViewModel values when available (MVVM)
                 if (ContentArea.Content is HudSettingsControl hud)

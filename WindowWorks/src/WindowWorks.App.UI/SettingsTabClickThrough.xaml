@@ -1,0 +1,28 @@
+<UserControl x:Class="WindowWorks.App.UI.SettingsTabClickThrough"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="clr-namespace:WindowWorks.App.UI"
+    Height="380" Width="520">
+    <StackPanel Margin="12">
+        <TextBlock FontSize="16" FontWeight="Bold">Click-Through</TextBlock>
+        <TextBlock Margin="0,8,0,12">Configure Click-Through feature modes and behavior.</TextBlock>
+
+        <GroupBox Header="Gesture Mode (Phase 1)" Margin="0,6,0,0">
+            <StackPanel Margin="6">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkEnableGesture" Width="320">Enable Gesture Mode (Ctrl+Alt+Click)</CheckBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkGestureAutoTransparency">Automatically set transparency when enabled</CheckBox>
+                    <Slider x:Name="SldGestureTransparency" Width="180" Minimum="0" Maximum="100" Value="50" Margin="8,0,0,0" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkGestureNotify">Display notification when Gesture Mode is enabled</CheckBox>
+                </StackPanel>
+                <TextBlock Margin="0,8,0,0" TextWrapping="Wrap">Once Gesture Mode is enabled, it can be disabled by pressing the Reset click-through global shortcut or by selecting Reset Click-Through from the tray menu.</TextBlock>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- Future: Modifier Mode UI will be Phase 2 -->
+    </StackPanel>
+</UserControl>

@@ -20,9 +20,10 @@ namespace WindowWorks.App
         private readonly AuditLog _auditLog;
         private readonly Persistence _persistence;
         private readonly Models.AppSettings _settings;
+        private readonly ClickThroughManager _clickThroughManager;
         public event EventHandler? ExitRequested;
 
-        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings)
+        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager)
         {
             _hotkeyManager = hotkeyManager;
             _windowManager = windowManager;
@@ -30,6 +31,7 @@ namespace WindowWorks.App
             _auditLog = auditLog;
             _persistence = persistence;
             _settings = settings;
+            _clickThroughManager = clickThroughManager ?? throw new ArgumentNullException(nameof(clickThroughManager));
 
             _notifyIcon = new NotifyIcon();
             try
@@ -93,6 +95,7 @@ namespace WindowWorks.App
             // Subscribe to hotkey/mouse gesture events from manager
             _hotkeyManager.OpacityNudgeRequested += HotkeyManager_OpacityNudgeRequested;
             _hotkeyManager.ToggleTopmostRequested += HotkeyManager_ToggleTopmostRequested;
+            _hotkeyManager.ClickThroughResetRequested += HotkeyManager_ClickThroughResetRequested;
             // Subscribe to hotkey registration failures to notify the user via tray balloon
             _hotkeyManager.HotkeyRegistrationFailed += HotkeyManager_HotkeyRegistrationFailed;
         }
@@ -101,6 +104,16 @@ namespace WindowWorks.App
         {
             // No-op for now. Left for symmetry and future async startup.
             // No longer subscribing to window manager debug events.
+        }
+
+        // Show a user notification via the tray icon. Uses ShowBalloonTip which maps to a toast on modern Windows.
+        public void ShowNotification(string title, string text, ToolTipIcon icon = ToolTipIcon.Info, int timeoutMs = 5000)
+        {
+            try
+            {
+                _notifyIcon.ShowBalloonTip(timeoutMs, title, text, icon);
+            }
+            catch { }
         }
 
         private void WindowManager_ProcessBlacklisted(object? sender, string processName)
@@ -144,6 +157,33 @@ namespace WindowWorks.App
                     if (result == DialogResult.Yes)
                     {
                         _auditLog.EmergencyReset(_windowManager);
+                        try { _clickThroughManager.ResetAllClickThrough(); } catch { }
+                    }
+                }
+                catch { }
+            }));
+            // Add Reset Click-Through entry (Phase 1)
+            menu.Items.Add(new ToolStripMenuItem("Reset Click-Through", null, (s, e) =>
+            {
+                try
+                {
+                    var result = MessageBox.Show(
+                        "Reset Click-Through for all modified windows?",
+                        "Reset Click-Through",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (result == DialogResult.Yes)
+                    {
+                        try { _clickThroughManager.ResetAllClickThrough(); }
+                        catch { }
+                        try
+                        {
+                            if (_settings.ClickThrough_Gesture_ShowNotification)
+                            {
+                                _notifyIcon.ShowBalloonTip(4000, "Click-Through reset", "Click-Through state has been reset for modified windows.", ToolTipIcon.Info);
+                            }
+                        }
+                        catch { }
                     }
                 }
                 catch { }
@@ -169,28 +209,43 @@ namespace WindowWorks.App
                         var dict = System.Text.Json.JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>>(updatedJson);
                         if (dict != null)
                         {
-                            if (dict.TryGetValue("HighlightBorderColor", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) _settings.HighlightBorderColor = v.GetString() ?? _settings.HighlightBorderColor;
-                            if (dict.TryGetValue("HighlightBorderThickness", out v) && v.TryGetInt32(out var it)) _settings.HighlightBorderThickness = it;
-                            if (dict.TryGetValue("HighlightCornerRadius", out v) && v.TryGetInt32(out var ic)) _settings.HighlightCornerRadius = ic;
-                            if (dict.TryGetValue("HighlightDurationMs", out v) && v.TryGetInt32(out var ih)) _settings.HighlightDurationMs = ih;
-                            if (dict.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var iu)) _settings.HudDurationMs = iu;
-                            // Apply HUD visual settings if provided
-                            if (dict.TryGetValue("HudBackgroundColor", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) _settings.HudBackgroundColor = v.GetString() ?? _settings.HudBackgroundColor;
-                            if (dict.TryGetValue("HudTransparencyPercent", out v) && v.TryGetInt32(out var htp)) _settings.HudTransparencyPercent = htp;
-                            if (dict.TryGetValue("HudFontSize", out v) && v.TryGetInt32(out var hfs)) _settings.HudFontSize = hfs;
-                            if (dict.TryGetValue("HudCornerRadius", out v) && v.TryGetInt32(out var hcr)) _settings.HudCornerRadius = hcr;
-                            if (dict.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnOpacityChange = true; else if (dict.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnOpacityChange = false;
-                            if (dict.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnTopmostToggle = true; else if (dict.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnTopmostToggle = false;
-                            if (dict.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.ShowHudOnPresetApplied = true; else if (dict.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.ShowHudOnPresetApplied = false;
-                            // UseSystemColors removed - always use configured HighlightBorderColor
-                            if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableHighlight = true; else if (dict.TryGetValue("EnableHighlight", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableHighlight = false;
-                            if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) _settings.EnableConfirmations = true; else if (dict.TryGetValue("EnableConfirmations", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) _settings.EnableConfirmations = false;
-                            // hotkeys
-                            if (dict.TryGetValue("HotkeyCommandPalette", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) _settings.HotkeyCommandPalette = v.GetString();
-                            if (dict.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) _settings.HotkeyEmergencyReset = v.GetString();
+                            // Generic merge: for every key present in the returned dictionary, update the corresponding AppSettings property if it exists.
+                            var settingsType = typeof(Models.AppSettings);
+                            foreach (var kv in dict)
+                            {
+                                try
+                                {
+                                    var prop = settingsType.GetProperty(kv.Key);
+                                    if (prop == null || !prop.CanWrite) continue;
+                                    var pt = prop.PropertyType;
+                                    var je = kv.Value;
+                                    if (pt == typeof(string) && je.ValueKind == System.Text.Json.JsonValueKind.String)
+                                    {
+                                        prop.SetValue(_settings, je.GetString());
+                                    }
+                                    else if (pt == typeof(int) && je.ValueKind == System.Text.Json.JsonValueKind.Number && je.TryGetInt32(out var iv))
+                                    {
+                                        prop.SetValue(_settings, iv);
+                                    }
+                                    else if (pt == typeof(bool) && (je.ValueKind == System.Text.Json.JsonValueKind.True || je.ValueKind == System.Text.Json.JsonValueKind.False))
+                                    {
+                                        prop.SetValue(_settings, je.GetBoolean());
+                                    }
+                                    else if (pt == typeof(System.Collections.Generic.List<string>) && je.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                    {
+                                        var list = new System.Collections.Generic.List<string>();
+                                        foreach (var item in je.EnumerateArray())
+                                        {
+                                            if (item.ValueKind == System.Text.Json.JsonValueKind.String) list.Add(item.GetString() ?? string.Empty);
+                                        }
+                                        prop.SetValue(_settings, list);
+                                    }
+                                    // else: unsupported type - skip
+                                }
+                                catch { }
+                            }
+
                             try { _persistence.SaveSettings(_settings); } catch { }
-                            // Re-apply hotkeys so changes take effect immediately
-                            try { _hotkeyManager.ApplyHotkeySettings(_settings); } catch { }
                         }
                     }
                     catch { }
@@ -350,6 +405,18 @@ namespace WindowWorks.App
         private void HotkeyManager_ToggleClickThroughRequested(object? sender, EventArgs e)
         {
             // Click-through feature has been removed; ignore the gesture.
+        }
+
+        private void HotkeyManager_ClickThroughResetRequested(object? sender, EventArgs e)
+        {
+            try
+            {
+                // Confirm reset via tray balloon or immediate reset depending on settings
+                // For now, perform immediate reset and show a balloon notification
+                _clickThroughManager.ResetAllClickThrough();
+                try { _notifyIcon.ShowBalloonTip(4000, "Click-Through reset", "Click-Through state has been reset for modified windows.", ToolTipIcon.Info); } catch { }
+            }
+            catch { }
         }
 
         private void ShowHud(string message, IntPtr? targetHwnd = null)

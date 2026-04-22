@@ -22,9 +22,12 @@ namespace WindowWorks.App
             var windowManager = new WindowManager(auditLog, settings);
             var hotkeyManager = new HotkeyManager(settings);
 
-            var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings);
+            // ClickThrough manager (Phase 1) - tracks modified windows and applies WS_EX_TRANSPARENT
+            var clickThroughManager = new ClickThroughManager(settings, auditLog);
 
-            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings);
+            var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager);
+
+            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager);
             // Register UI services using a minimal local service collection (no external NuGet required)
             try
             {
@@ -64,8 +67,9 @@ namespace WindowWorks.App
         private readonly Persistence _persistence;
         private readonly AuditLog _auditLog;
         private readonly Models.AppSettings _settings;
+        private readonly ClickThroughManager _clickThroughManager;
 
-        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings)
+        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager)
         {
             _tray = tray;
             _hotkeyManager = hotkeyManager;
@@ -74,10 +78,13 @@ namespace WindowWorks.App
             _persistence = persistence;
             _auditLog = auditLog;
             _settings = settings;
+            _clickThroughManager = clickThroughManager ?? throw new ArgumentNullException(nameof(clickThroughManager));
 
             // Start managers that require message loop or hooks
             _hotkeyManager.Start();
             _hotkeyManager.HotkeyPressed += HotkeyManager_HotkeyPressed;
+            // Mouse gesture for click-through (Ctrl+Alt+Click)
+            _hotkeyManager.ClickThroughGestureRequested += HotkeyManager_ClickThroughGestureRequested;
 
             tray.Initialize();
             tray.ExitRequested += Tray_ExitRequested;
@@ -113,6 +120,8 @@ namespace WindowWorks.App
                             if (result == DialogResult.Yes)
                             {
                                 _auditLog.EmergencyReset(_windowManager);
+                                // Ensure click-through state is also reset when performing an emergency reset
+                                try { _clickThroughManager.ResetAllClickThrough(); } catch { }
                             }
                         }
                         catch { }
@@ -128,6 +137,36 @@ namespace WindowWorks.App
             ExitThread();
         }
 
+        private void HotkeyManager_ClickThroughGestureRequested(object? sender, EventArgs e)
+        {
+            try
+            {
+                // When the gesture is triggered, determine window under cursor and enable click-through
+                var wm = _windowManager;
+                if (wm == null) return;
+                IntPtr hwnd = wm.GetWindowUnderCursor();
+                if (hwnd == IntPtr.Zero) return;
+
+                bool applyTransparency = _settings.ClickThrough_Gesture_AutoTransparency;
+                int tp = _settings.ClickThrough_Gesture_TransparencyPercent;
+                try
+                {
+                    _clickThroughManager.EnableClickThrough(hwnd, applyTransparency, tp);
+                    if (_settings.ClickThrough_Gesture_ShowNotification)
+                    {
+                        // Show a native tray/toast notification instead of a blocking MessageBox
+                        try
+                        {
+                            _tray.ShowNotification("Click-Through", "Click-Through enabled for the selected window.", System.Windows.Forms.ToolTipIcon.Info, 4000);
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+            catch { }
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -138,6 +177,7 @@ namespace WindowWorks.App
                 _presetManager.Dispose();
                 _persistence.Dispose();
                 _auditLog.Dispose();
+                try { _clickThroughManager.Dispose(); } catch { }
             }
             base.Dispose(disposing);
         }

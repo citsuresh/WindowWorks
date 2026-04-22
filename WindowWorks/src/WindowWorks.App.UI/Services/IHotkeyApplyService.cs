@@ -6,6 +6,7 @@ namespace WindowWorks.App.UI.Services
     public interface IHotkeyApplyService
     {
         // Notify host that hotkeys/gestures changed. Parameters nullable; host ignores nulls.
-        void ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost);
+        // Returns a HotkeyApplyResult containing per-shortcut success/failure information.
+        HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost);
     }
 }

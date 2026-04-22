@@ -22,8 +22,9 @@ namespace WindowWorks.App
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         }
 
-        public void ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost)
+        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost)
         {
+            var result = new WindowWorks.App.UI.Services.HotkeyApplyResult();
             bool changed = false;
             if (!string.IsNullOrWhiteSpace(commandPalette) && !string.Equals(commandPalette, _settings.HotkeyCommandPalette, StringComparison.Ordinal))
             {
@@ -57,13 +58,35 @@ namespace WindowWorks.App
             {
                 try
                 {
+                    // Attempt to apply hotkeys and capture per-key registration feedback via HotkeyRegistrationFailed event.
+                    // Temporarily subscribe to capture failures for mapping back to the result object.
+                    void OnFail(object? s, HotkeyRegistrationFailedEventArgs e)
+                    {
+                        try
+                        {
+                            var keyName = $"{e.Modifiers}+{e.Key}";
+                            result.SetSuccess(keyName, false, $"Error {e.ErrorCode}");
+                        }
+                        catch { }
+                    }
+
+                    _hotkeyManager.HotkeyRegistrationFailed += OnFail;
                     _hotkeyManager.ApplyHotkeySettings(_settings);
+                    // If no failure was recorded for a known key, mark it success.
+                    // Known keys: HotkeyCommandPalette, HotkeyEmergencyReset
+                    var kp = _settings.HotkeyCommandPalette ?? string.Empty;
+                    var kr = _settings.HotkeyEmergencyReset ?? string.Empty;
+                    if (!result.Success.ContainsKey(kp) && !string.IsNullOrWhiteSpace(kp)) result.SetSuccess(kp, true, null);
+                    if (!result.Success.ContainsKey(kr) && !string.IsNullOrWhiteSpace(kr)) result.SetSuccess(kr, true, null);
+                    _hotkeyManager.HotkeyRegistrationFailed -= OnFail;
                 }
                 catch { }
 
                 // Debounced save
                 DebouncedSave();
             }
+
+            return result;
         }
 
         private void DebouncedSave()
