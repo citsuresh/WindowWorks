@@ -247,6 +247,15 @@ namespace WindowWorks.App.UI
                     if (chkAuto != null) settingsDict["ClickThrough_Gesture_AutoTransparency"] = chkAuto.IsChecked == true;
                     if (sld != null) settingsDict["ClickThrough_Gesture_TransparencyPercent"] = (int)sld.Value;
                     if (chkNotify != null) settingsDict["ClickThrough_Gesture_ShowNotification"] = chkNotify.IsChecked == true;
+                    // Modifier Mode controls
+                    var chkModEnable = ct.FindName("ChkEnableModifier") as System.Windows.Controls.CheckBox;
+                    var chkModAuto = ct.FindName("ChkModifierAutoTransparency") as System.Windows.Controls.CheckBox;
+                    var sldMod = ct.FindName("SldModifierTransparency") as System.Windows.Controls.Slider;
+                    var chkModNotify = ct.FindName("ChkModifierNotify") as System.Windows.Controls.CheckBox;
+                    if (chkModEnable != null) settingsDict["EnableClickThroughModifierMode"] = chkModEnable.IsChecked == true;
+                    if (chkModAuto != null) settingsDict["ClickThrough_Modifier_AutoTransparency"] = chkModAuto.IsChecked == true;
+                    if (sldMod != null) settingsDict["ClickThrough_Modifier_TransparencyPercent"] = (int)sldMod.Value;
+                    if (chkModNotify != null) settingsDict["ClickThrough_Modifier_ShowNotification"] = chkModNotify.IsChecked == true;
                 }
                 // For HUD page, capture HUD visual settings. Prefer ViewModel values when available (MVVM)
                 if (ContentArea.Content is HudSettingsControl hud)
@@ -329,6 +338,37 @@ namespace WindowWorks.App.UI
                     }
                 }
                 // Signal result as JSON and close
+                // Apply hotkey changes immediately via host service so keyboard hotkeys re-register without restart.
+                try
+                {
+                    string? cp = null;
+                    string? er = null;
+                    if (settingsDict.TryGetValue("HotkeyCommandPalette", out var cpObj) && cpObj is string cpStr) cp = cpStr;
+                    if (settingsDict.TryGetValue("HotkeyEmergencyReset", out var erObj) && erObj is string erStr) er = erStr;
+                    try
+                    {
+                        var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null);
+                        // Optionally, UI could surface res to show per-key errors. For now we ignore the result.
+                    }
+                    catch { }
+
+                    // Also apply modifier mode settings immediately via host service
+                    try
+                    {
+                        bool? enableMod = null;
+                        bool? modAuto = null;
+                        int? modTp = null;
+                        bool? modNotify = null;
+                        if (settingsDict.TryGetValue("EnableClickThroughModifierMode", out var em)) { if (em is bool b) enableMod = b; }
+                        if (settingsDict.TryGetValue("ClickThrough_Modifier_AutoTransparency", out var ma)) { if (ma is bool b2) modAuto = b2; }
+                        if (settingsDict.TryGetValue("ClickThrough_Modifier_TransparencyPercent", out var mt)) { if (mt is int iv) modTp = iv; }
+                        if (settingsDict.TryGetValue("ClickThrough_Modifier_ShowNotification", out var mn)) { if (mn is bool b3) modNotify = b3; }
+                        try { var r2 = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyModifierSettings(enableMod, modAuto, modTp, modNotify); } catch { }
+                    }
+                    catch { }
+                }
+                catch { }
+
                 var json = JsonSerializer.Serialize(settingsDict);
                 // Emit a debug copy of the settings to help diagnose persistence issues
                 try

@@ -48,7 +48,7 @@ namespace WindowWorks.App.Models
         public string HotkeyOpacityNudge { get; set; } = "Ctrl+MouseWheel";
         public string HotkeyToggleTopmost { get; set; } = "Ctrl+Shift+Click";
 
-        // Click-through feature settings (Phase 1: Gesture Mode)
+        // Click-through feature settings (Gesture Mode)
         // Enable Gesture Mode (Ctrl+Alt+Click by default)
         public bool EnableClickThroughGestureMode { get; set; } = true;
         // Gesture combination string persisted (e.g. "Ctrl+Alt+Click")
@@ -62,6 +62,12 @@ namespace WindowWorks.App.Models
         // Show notification when gesture mode is enabled
         public bool ClickThrough_Gesture_ShowNotification { get; set; } = true;
 
+        // Modifier Mode settings - temporary click-through while modifier combo is held
+        public bool EnableClickThroughModifierMode { get; set; } = false;
+        public bool ClickThrough_Modifier_AutoTransparency { get; set; } = false;
+        public int ClickThrough_Modifier_TransparencyPercent { get; set; } = 50;
+        public bool ClickThrough_Modifier_ShowNotification { get; set; } = true;
+
         // HUD visual settings
         public int HudFontSize { get; set; } = 13;
         public string HudBackgroundColor { get; set; } = "#88000000";
@@ -72,6 +78,9 @@ namespace WindowWorks.App.Models
         public bool ShowHudOnOpacityChange { get; set; } = true;
         public bool ShowHudOnTopmostToggle { get; set; } = true;
         public bool ShowHudOnPresetApplied { get; set; } = true;
+        // HUD toggles for click-through features
+        public bool ShowHudOnClickThroughGesture { get; set; } = true;
+        public bool ShowHudOnClickThroughModifier { get; set; } = true;
 
         // Highlight pulse animation
         public bool HighlightPulse { get; set; } = true;

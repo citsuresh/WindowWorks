@@ -36,21 +36,35 @@ namespace WindowWorks.App
         public OpacityNudgeEventArgs(int delta) { Delta = delta; }
     }
 
+    public class ModifierModeEventArgs : EventArgs
+    {
+        public IntPtr Hwnd { get; }
+        public ModifierModeEventArgs(IntPtr hwnd) { Hwnd = hwnd; }
+    }
+
     /// <summary>
     /// Registers system hotkeys and installs a low-level mouse hook (WH_MOUSE_LL) to detect gestures.
     /// Minimal implementation: exposes events for the app to react to.
     /// </summary>
     public class HotkeyManager : IDisposable
     {
+        // Keyboard hook for modifier-mode detection
+        private IntPtr _keyboardHook = IntPtr.Zero;
+        private NativeMethods.LowLevelKeyboardProc? _keyboardProc;
+        private bool _modifierModeActive = false;
+        private IntPtr _modifierModeTargetHwnd = IntPtr.Zero;
         // Event raised when RegisterHotKey fails (e.g., already registered by another app)
         public event EventHandler<HotkeyRegistrationFailedEventArgs>? HotkeyRegistrationFailed;
         // Events for high-level gestures
         public event EventHandler<HotkeyEventArgs>? HotkeyPressed;
         public event EventHandler<OpacityNudgeEventArgs>? OpacityNudgeRequested;
         public event EventHandler? ToggleTopmostRequested;
-        // Click-through gesture events (Phase 1)
+        // Click-through gesture events
         public event EventHandler? ClickThroughGestureRequested;
         public event EventHandler? ClickThroughResetRequested;
+        // Modifier-mode events (transient hold-based click-through)
+        public event EventHandler<ModifierModeEventArgs>? ModifierModeStarted;
+        public event EventHandler<ModifierModeEventArgs>? ModifierModeEnded;
 
         private IntPtr _mouseHook = IntPtr.Zero;
         private NativeMethods.LowLevelMouseProc? _mouseProc;
@@ -91,6 +105,9 @@ namespace WindowWorks.App
             // Install low-level mouse hook to detect Ctrl+Wheel and Ctrl+Click combos
             _mouseProc = LowLevelMouseProc;
             _mouseHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_MOUSE_LL, _mouseProc, IntPtr.Zero, 0);
+            // Install low-level keyboard hook to detect modifier-only combos for modifier mode
+            _keyboardProc = LowLevelKeyboardProc;
+            _keyboardHook = NativeMethods.SetWindowsHookEx(NativeMethods.WH_KEYBOARD_LL, _keyboardProc, IntPtr.Zero, 0);
             DebugLog($"Start: mouseHook={( _mouseHook != IntPtr.Zero ? _mouseHook.ToString() : "NULL")} msgWindowHandle={( _msgWindow != null ? _msgWindow.Handle.ToString() : "NULL")} syncContext={( _syncContext != null ? "YES" : "NO")} settings.EnableCtrlWheelOpacity={_settings.EnableCtrlWheelOpacity} settings.EnableCtrlAltTopmost={_settings.EnableCtrlAltTopmost} settings.EnableCtrlShiftTopmost={_settings.EnableCtrlShiftTopmost}");
         }
 
@@ -100,6 +117,11 @@ namespace WindowWorks.App
             {
                 NativeMethods.UnhookWindowsHookEx(_mouseHook);
                 _mouseHook = IntPtr.Zero;
+            }
+            if (_keyboardHook != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_keyboardHook);
+                _keyboardHook = IntPtr.Zero;
             }
             if (_msgWindow != null)
             {
@@ -111,7 +133,7 @@ namespace WindowWorks.App
         private void HandleHotkeyMessage(int id, HotkeyModifiers mods, Keys key)
         {
             // Handle special registered hotkeys by id when known by convention
-            // id==2 is reserved for Click-Through Reset (Phase 1)
+            // id==2 is reserved for Click-Through Reset
             // id-based special handlers removed for Click-Through Reset to avoid conflicts.
 
             HotkeyPressed?.Invoke(this, new HotkeyEventArgs(mods, key));
@@ -190,14 +212,38 @@ namespace WindowWorks.App
                     if (ctrl && alt && _settings.EnableClickThroughGestureMode)
                     {
                         DebugLog($"Detected ClickThrough gesture WM_LBUTTONDOWN ctrl={ctrl} alt={alt} shift={shift}");
-                        if (_syncContext != null)
+                        try
                         {
-                            _syncContext.Post(_ => ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty), null);
+                            // Only trigger click-through when the click occurs over the window title bar (consistent with Ctrl+Wheel behavior)
+                            if (NativeMethods.GetCursorPos(out var p))
+                            {
+                                IntPtr target = NativeMethods.WindowFromPoint(p);
+                                if (target != IntPtr.Zero)
+                                {
+                                    IntPtr top = NativeMethods.GetAncestor(target, NativeMethods.GA_ROOT);
+                                    if (top == IntPtr.Zero) top = target;
+                                    if (NativeMethods.GetWindowRect(top, out var wr))
+                                    {
+                                        int caption = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYCAPTION);
+                                        int frame = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYFRAME);
+                                        int titleHeight = caption + frame;
+                                        int localY = p.Y - wr.Top;
+                                        if (localY <= titleHeight)
+                                        {
+                                            if (_syncContext != null)
+                                            {
+                                                _syncContext.Post(_ => ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty), null);
+                                            }
+                                            else
+                                            {
+                                                ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        else
-                        {
-                            ClickThroughGestureRequested?.Invoke(this, EventArgs.Empty);
-                        }
+                        catch { }
                     }
                     else if (ctrl && shift && _settings.EnableCtrlShiftTopmost)
                     {
@@ -219,6 +265,97 @@ namespace WindowWorks.App
                 }
             }
             return NativeMethods.CallNextHookEx(_mouseHook, nCode, wParam, lParam);
+        }
+
+        private IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            // Detect modifier combo press/release (Ctrl+Alt+Shift)
+            try
+            {
+                if (nCode >= 0)
+                {
+                    bool ctrl = (NativeMethods.GetAsyncKeyState((int)Keys.ControlKey) & 0x8000) != 0;
+                    bool alt = (NativeMethods.GetAsyncKeyState((int)Keys.Menu) & 0x8000) != 0;
+                    bool shift = (NativeMethods.GetAsyncKeyState((int)Keys.ShiftKey) & 0x8000) != 0;
+
+                    // If all three modifiers are down and modifier mode is enabled in settings, start modifier mode.
+                    if (ctrl && alt && shift && _settings.EnableClickThroughModifierMode && !_modifierModeActive)
+                    {
+                        _modifierModeActive = true;
+                        try
+                        {
+                            // Determine window under cursor and notify host
+                            if (_syncContext != null)
+                            {
+                                _syncContext.Post(_ => StartModifierModeInternal(), null);
+                            }
+                            else
+                            {
+                                StartModifierModeInternal();
+                            }
+                        }
+                        catch { }
+                    }
+                    // If modifier mode was active and modifiers released, end modifier mode
+                    if (_modifierModeActive && !(ctrl && alt && shift))
+                    {
+                        _modifierModeActive = false;
+                        try
+                        {
+                            if (_syncContext != null)
+                            {
+                                _syncContext.Post(_ => EndModifierModeInternal(), null);
+                            }
+                            else
+                            {
+                                EndModifierModeInternal();
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+            return NativeMethods.CallNextHookEx(_keyboardHook, nCode, wParam, lParam);
+        }
+
+        private void StartModifierModeInternal()
+        {
+            // Determine window under cursor and raise ModifierModeStarted with hwnd
+            try
+            {
+                if (NativeMethods.GetCursorPos(out var p))
+                {
+                    var hwnd = NativeMethods.WindowFromPoint(new NativeMethods.POINT { X = p.X, Y = p.Y });
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        _modifierModeTargetHwnd = hwnd;
+                        try
+                        {
+                            ModifierModeStarted?.Invoke(this, new ModifierModeEventArgs(hwnd));
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void EndModifierModeInternal()
+        {
+            try
+            {
+                if (_modifierModeTargetHwnd != IntPtr.Zero)
+                {
+                    try
+                    {
+                        ModifierModeEnded?.Invoke(this, new ModifierModeEventArgs(_modifierModeTargetHwnd));
+                    }
+                    catch { }
+                    _modifierModeTargetHwnd = IntPtr.Zero;
+                }
+            }
+            catch { }
         }
 
         #region Hotkey registration helpers
@@ -385,11 +522,16 @@ namespace WindowWorks.App
     internal static partial class NativeMethods
     {
         public const int WH_MOUSE_LL = 14;
+        public const int WH_KEYBOARD_LL = 13;
 
         public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+        public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern bool UnhookWindowsHookEx(IntPtr hhk);

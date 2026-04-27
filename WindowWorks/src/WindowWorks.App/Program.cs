@@ -22,7 +22,7 @@ namespace WindowWorks.App
             var windowManager = new WindowManager(auditLog, settings);
             var hotkeyManager = new HotkeyManager(settings);
 
-            // ClickThrough manager (Phase 1) - tracks modified windows and applies WS_EX_TRANSPARENT
+            // ClickThrough manager - tracks modified windows and applies WS_EX_TRANSPARENT
             var clickThroughManager = new ClickThroughManager(settings, auditLog);
 
             var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager);
@@ -157,7 +157,7 @@ namespace WindowWorks.App
                         // Show a native tray/toast notification instead of a blocking MessageBox
                         try
                         {
-                            _tray.ShowNotification("Click-Through", "Click-Through enabled for the selected window.", System.Windows.Forms.ToolTipIcon.Info, 4000);
+                            _tray.ShowNotification("Click-Through", "Click-Through enabled for the selected window. Select the \"Reset Click-Through\" Tray menu option to disable click-through", System.Windows.Forms.ToolTipIcon.Info, 4000);
                         }
                         catch { }
                     }

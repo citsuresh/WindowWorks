@@ -89,6 +89,39 @@ namespace WindowWorks.App
             return result;
         }
 
+        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyModifierSettings(bool? enableModifierMode, bool? autoTransparency, int? transparencyPercent, bool? showNotification)
+        {
+            var result = new WindowWorks.App.UI.Services.HotkeyApplyResult();
+            bool changed = false;
+            if (enableModifierMode.HasValue && enableModifierMode.Value != _settings.EnableClickThroughModifierMode)
+            {
+                _settings.EnableClickThroughModifierMode = enableModifierMode.Value;
+                changed = true;
+            }
+            if (autoTransparency.HasValue && autoTransparency.Value != _settings.ClickThrough_Modifier_AutoTransparency)
+            {
+                _settings.ClickThrough_Modifier_AutoTransparency = autoTransparency.Value;
+                changed = true;
+            }
+            if (transparencyPercent.HasValue && transparencyPercent.Value != _settings.ClickThrough_Modifier_TransparencyPercent)
+            {
+                _settings.ClickThrough_Modifier_TransparencyPercent = transparencyPercent.Value;
+                changed = true;
+            }
+            if (showNotification.HasValue && showNotification.Value != _settings.ClickThrough_Modifier_ShowNotification)
+            {
+                _settings.ClickThrough_Modifier_ShowNotification = showNotification.Value;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                DebouncedSave();
+            }
+
+            return result;
+        }
+
         private void DebouncedSave()
         {
             try

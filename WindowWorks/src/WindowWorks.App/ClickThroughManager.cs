@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 namespace WindowWorks.App
 {
     /// <summary>
-    /// Manages click-through state for windows. Phase 1 skeleton: Gesture Mode.
+    /// Manages click-through state for windows.
     /// Responsibilities:
     /// - Enable/disable click-through (WS_EX_TRANSPARENT) for target windows
     /// - Apply optional transparency via SetLayeredWindowAttributes
@@ -45,6 +45,9 @@ namespace WindowWorks.App
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint pcrKey, out byte pbAlpha, out uint pdwFlags);
+
         [StructLayout(LayoutKind.Sequential)]
         public struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
 
@@ -68,7 +71,19 @@ namespace WindowWorks.App
                 int ex = GetWindowLong(hwnd, GWL_EXSTYLE);
                 if (!_modifiedWindows.ContainsKey(hwnd))
                 {
-                    _modifiedWindows[hwnd] = new WindowOriginalState { ExStyle = ex, Alpha = null, LayeredWasSet = (ex & WS_EX_LAYERED) != 0 };
+                    byte? origAlpha = null;
+                    try
+                    {
+                        if ((ex & WS_EX_LAYERED) != 0)
+                        {
+                            if (GetLayeredWindowAttributes(hwnd, out var _cr, out var _alpha, out var _flags))
+                            {
+                                origAlpha = _alpha;
+                            }
+                        }
+                    }
+                    catch { }
+                    _modifiedWindows[hwnd] = new WindowOriginalState { ExStyle = ex, Alpha = origAlpha, LayeredWasSet = (ex & WS_EX_LAYERED) != 0 };
                 }
 
                 int newEx = ex | WS_EX_TRANSPARENT | WS_EX_LAYERED;
@@ -104,13 +119,36 @@ namespace WindowWorks.App
                     SetWindowLong(hwnd, GWL_EXSTYLE, orig.ExStyle);
                     if (orig.LayeredWasSet && orig.Alpha.HasValue)
                     {
-                        // restore alpha if needed - left as future work
+                        try
+                        {
+                            SetLayeredWindowAttributes(hwnd, 0, orig.Alpha.Value, 0x02);
+                        }
+                        catch { }
                     }
                 }
                 catch { }
             }
             _modifiedWindows.Clear();
             // TODO: Show HUD/tray notification
+        }
+
+        /// <summary>
+        /// Disable click-through for a specific window, restoring its original style and alpha if recorded.
+        /// </summary>
+        public void DisableClickThrough(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            if (!_modifiedWindows.TryGetValue(hwnd, out var orig)) return;
+            try
+            {
+                SetWindowLong(hwnd, GWL_EXSTYLE, orig.ExStyle);
+                if (orig.LayeredWasSet && orig.Alpha.HasValue)
+                {
+                    try { SetLayeredWindowAttributes(hwnd, 0, orig.Alpha.Value, 0x02); } catch { }
+                }
+            }
+            catch { }
+            _modifiedWindows.Remove(hwnd);
         }
 
         public void Dispose()

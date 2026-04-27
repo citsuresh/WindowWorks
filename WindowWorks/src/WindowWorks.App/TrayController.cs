@@ -96,6 +96,9 @@ namespace WindowWorks.App
             _hotkeyManager.OpacityNudgeRequested += HotkeyManager_OpacityNudgeRequested;
             _hotkeyManager.ToggleTopmostRequested += HotkeyManager_ToggleTopmostRequested;
             _hotkeyManager.ClickThroughResetRequested += HotkeyManager_ClickThroughResetRequested;
+            // Modifier mode events
+            _hotkeyManager.ModifierModeStarted += HotkeyManager_ModifierModeStarted;
+            _hotkeyManager.ModifierModeEnded += HotkeyManager_ModifierModeEnded;
             // Subscribe to hotkey registration failures to notify the user via tray balloon
             _hotkeyManager.HotkeyRegistrationFailed += HotkeyManager_HotkeyRegistrationFailed;
         }
@@ -162,7 +165,7 @@ namespace WindowWorks.App
                 }
                 catch { }
             }));
-            // Add Reset Click-Through entry (Phase 1)
+            // Add Reset Click-Through entry
             menu.Items.Add(new ToolStripMenuItem("Reset Click-Through", null, (s, e) =>
             {
                 try
@@ -404,7 +407,17 @@ namespace WindowWorks.App
 
         private void HotkeyManager_ToggleClickThroughRequested(object? sender, EventArgs e)
         {
-            // Click-through feature has been removed; ignore the gesture.
+            try
+            {
+                IntPtr hwnd = WindowManager.Native.GetTopmostWindowUnderCursor();
+                if (hwnd == IntPtr.Zero) hwnd = _windowManager.GetWindowUnderCursor();
+                if (hwnd == IntPtr.Zero) hwnd = _windowManager.GetForegroundWindowHandle();
+                if (hwnd == IntPtr.Zero) return;
+
+                // Show HUD for gesture when enabled by settings
+                MaybeShowHudForClickThrough("Click-Through toggled", hwnd, isGesture: true);
+            }
+            catch { }
         }
 
         private void HotkeyManager_ClickThroughResetRequested(object? sender, EventArgs e)
@@ -415,6 +428,58 @@ namespace WindowWorks.App
                 // For now, perform immediate reset and show a balloon notification
                 _clickThroughManager.ResetAllClickThrough();
                 try { _notifyIcon.ShowBalloonTip(4000, "Click-Through reset", "Click-Through state has been reset for modified windows.", ToolTipIcon.Info); } catch { }
+                // Also show HUD notification if enabled (anchor to bottom-right)
+                try { if (_settings.ShowHudOnClickThroughGesture) { ShowHud(null); _activeHud?.ShowBottomRight(); } } catch { }
+            }
+            catch { }
+        }
+
+        private void HotkeyManager_ModifierModeStarted(object? sender, ModifierModeEventArgs e)
+        {
+            try
+            {
+                if (e == null || e.Hwnd == IntPtr.Zero) return;
+                bool applyTransparency = _settings.ClickThrough_Modifier_AutoTransparency;
+                int transparencyPercent = _settings.ClickThrough_Modifier_TransparencyPercent;
+                _clickThroughManager.EnableClickThrough(e.Hwnd, applyTransparency, transparencyPercent);
+                if (_settings.ClickThrough_Modifier_ShowNotification)
+                {
+                    try { _notifyIcon.ShowBalloonTip(3000, "Click-Through (Modifier)", "Click-Through enabled while modifier held.", ToolTipIcon.Info); } catch { }
+                }
+                // Also show HUD if configured
+                MaybeShowHudForClickThrough("Click-Through enabled", e.Hwnd, isGesture: false);
+            }
+            catch { }
+        }
+
+        private void HotkeyManager_ModifierModeEnded(object? sender, ModifierModeEventArgs e)
+        {
+            try
+            {
+                if (e == null || e.Hwnd == IntPtr.Zero) return;
+                _clickThroughManager.DisableClickThrough(e.Hwnd);
+                if (_settings.ClickThrough_Modifier_ShowNotification)
+                {
+                    try { _notifyIcon.ShowBalloonTip(3000, "Click-Through (Modifier)", "Click-Through disabled after modifier released.", ToolTipIcon.Info); } catch { }
+                }
+                MaybeShowHudForClickThrough("Click-Through disabled", e.Hwnd, isGesture: false);
+            }
+            catch { }
+        }
+
+        private void MaybeShowHudForClickThrough(string message, IntPtr hwnd, bool isGesture)
+        {
+            try
+            {
+                if (isGesture)
+                {
+                    if (!_settings.ShowHudOnClickThroughGesture) return;
+                }
+                else
+                {
+                    if (!_settings.ShowHudOnClickThroughModifier) return;
+                }
+                try { ShowHud(message, hwnd); } catch { }
             }
             catch { }
         }

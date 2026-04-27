@@ -13,6 +13,41 @@ namespace WindowWorks.App.UI
             InitializeComponent();
         }
 
+        /// <summary>
+        /// Show the HUD pinned to the bottom-right corner of the primary screen with given margins (in physical pixels).
+        /// Keeps the window topmost without activating it.
+        /// </summary>
+        public void ShowBottomRight(int marginRight = 20, int marginBottom = 40)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (!IsVisible) Show();
+                UpdateLayout();
+                try
+                {
+                    // Get primary screen working area in physical pixels
+                    var wa = System.Windows.Forms.Screen.PrimaryScreen.WorkingArea;
+                    using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero))
+                    {
+                        float dpiX = g.DpiX;
+                        float dpiY = g.DpiY;
+                        double rightDip = wa.Right * 96.0 / dpiX;
+                        double bottomDip = wa.Bottom * 96.0 / dpiY;
+                        double w = ActualWidth;
+                        double h = ActualHeight;
+                        Left = Math.Max(0, rightDip - marginRight * 96.0 / dpiX - w);
+                        Top = Math.Max(0, bottomDip - marginBottom * 96.0 / dpiY - h);
+                    }
+                }
+                catch
+                {
+                    // fallback placement
+                    Left = SystemParameters.WorkArea.Width - ActualWidth - 20;
+                    Top = SystemParameters.WorkArea.Height - ActualHeight - 40;
+                }
+            });
+        }
+
         private void UndoButton_Click(object? sender, RoutedEventArgs e)
         {
             try { ResetCloseTimer(); } catch { }

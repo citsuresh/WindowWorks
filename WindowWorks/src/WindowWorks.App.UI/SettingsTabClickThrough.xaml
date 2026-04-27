@@ -7,14 +7,15 @@
         <TextBlock FontSize="16" FontWeight="Bold">Click-Through</TextBlock>
         <TextBlock Margin="0,8,0,12">Configure Click-Through feature modes and behavior.</TextBlock>
 
-        <GroupBox Header="Gesture Mode (Phase 1)" Margin="0,6,0,0">
+        <GroupBox Header="Gesture Mode" Margin="0,6,0,0">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkEnableGesture" Width="320">Enable Gesture Mode (Ctrl+Alt+Click)</CheckBox>
+                    <CheckBox x:Name="ChkEnableGesture" Width="320">Enable Gesture Mode (Ctrl+Alt+Click) (over the Title bar)</CheckBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                     <CheckBox x:Name="ChkGestureAutoTransparency">Automatically set transparency when enabled</CheckBox>
                     <Slider x:Name="SldGestureTransparency" Width="180" Minimum="0" Maximum="100" Value="50" Margin="8,0,0,0" />
+                    <TextBlock x:Name="TxtGestureTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="50%" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                     <CheckBox x:Name="ChkGestureNotify">Display notification when Gesture Mode is enabled</CheckBox>
@@ -23,6 +24,23 @@
             </StackPanel>
         </GroupBox>
 
-        <!-- Future: Modifier Mode UI will be Phase 2 -->
+        <GroupBox Header="Modifier Mode" Margin="0,10,0,0">
+            <StackPanel Margin="6">
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkEnableModifier" Width="320">Enable Modifier Mode (Ctrl+Alt+Shift held)</CheckBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkModifierAutoTransparency">Automatically set transparency while held</CheckBox>
+                    <Slider x:Name="SldModifierTransparency" Width="180" Minimum="0" Maximum="100" Value="50" Margin="8,0,0,0" ValueChanged="SldModifierTransparency_ValueChanged" />
+                    <TextBlock x:Name="TxtModifierTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="50%" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <CheckBox x:Name="ChkModifierNotify">Display notification when Modifier Mode is used</CheckBox>
+                </StackPanel>
+                <TextBlock Margin="0,8,0,0" TextWrapping="Wrap">When Modifier Mode is enabled, holding Ctrl+Alt+Shift will make the window under the cursor click-through until the keys are released.</TextBlock>
+            </StackPanel>
+        </GroupBox>
+
+
     </StackPanel>
 </UserControl>

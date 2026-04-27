@@ -6,7 +6,7 @@ namespace WindowWorks.App.UI
     public partial class SettingsTabClickThrough : UserControl
     {
         private TextBlock? _transparencyValueTextBlock;
-        // This control is a UI skeleton for Click-Through settings (Phase 1: Gesture Mode).
+        // This control is a UI for Click-Through settings.
         // Wire-up: call LoadFromSettings with settings dictionary to populate controls, and
         // expose an API to write changes back to the settings dictionary.
 
@@ -64,6 +64,20 @@ namespace WindowWorks.App.UI
             catch { }
         }
 
+        private TextBlock? _modifierTransparencyTextBlock;
+        private void SldModifierTransparency_ValueChanged(object? sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            try
+            {
+                if (sender is Slider sld)
+                {
+                    if (_modifierTransparencyTextBlock == null) _modifierTransparencyTextBlock = this.FindName("TxtModifierTransparencyValue") as TextBlock;
+                    if (_modifierTransparencyTextBlock != null) _modifierTransparencyTextBlock.Text = ((int)sld.Value).ToString() + "%";
+                }
+            }
+            catch { }
+        }
+
         public void LoadFromSettings(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
         {
             if (d == null) return;
@@ -78,6 +92,15 @@ namespace WindowWorks.App.UI
                     if (_transparencyValueTextBlock != null) _transparencyValueTextBlock.Text = tp + "%";
                 }
                 if (d.TryGetValue("ClickThrough_Gesture_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkGestureNotify.IsChecked = true; else if (d.TryGetValue("ClickThrough_Gesture_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkGestureNotify.IsChecked = false;
+                // Modifier mode settings
+                if (d.TryGetValue("EnableClickThroughModifierMode", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkEnableModifier.IsChecked = true; else if (d.TryGetValue("EnableClickThroughModifierMode", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkEnableModifier.IsChecked = false;
+                if (d.TryGetValue("ClickThrough_Modifier_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkModifierAutoTransparency.IsChecked = true; else if (d.TryGetValue("ClickThrough_Modifier_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkModifierAutoTransparency.IsChecked = false;
+                if (d.TryGetValue("ClickThrough_Modifier_TransparencyPercent", out v) && v.TryGetInt32(out var mtp))
+                {
+                    SldModifierTransparency.Value = mtp;
+                    if (_modifierTransparencyTextBlock != null) _modifierTransparencyTextBlock.Text = mtp + "%";
+                }
+                if (d.TryGetValue("ClickThrough_Modifier_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkModifierNotify.IsChecked = true; else if (d.TryGetValue("ClickThrough_Modifier_ShowNotification", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkModifierNotify.IsChecked = false;
             }
             catch { }
         }
@@ -90,6 +113,11 @@ namespace WindowWorks.App.UI
                 dict["ClickThrough_Gesture_AutoTransparency"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkGestureAutoTransparency.IsChecked ?? false)).RootElement;
                 dict["ClickThrough_Gesture_TransparencyPercent"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize((int)SldGestureTransparency.Value)).RootElement;
                 dict["ClickThrough_Gesture_ShowNotification"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkGestureNotify.IsChecked ?? false)).RootElement;
+                // Modifier mode settings
+                dict["EnableClickThroughModifierMode"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkEnableModifier.IsChecked ?? false)).RootElement;
+                dict["ClickThrough_Modifier_AutoTransparency"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkModifierAutoTransparency.IsChecked ?? false)).RootElement;
+                dict["ClickThrough_Modifier_TransparencyPercent"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize((int)SldModifierTransparency.Value)).RootElement;
+                dict["ClickThrough_Modifier_ShowNotification"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkModifierNotify.IsChecked ?? false)).RootElement;
             }
             catch { }
         }

@@ -28,6 +28,11 @@ namespace WindowWorks.App.UI
                 // Return an empty result indicating no failures (no-op host)
                 return new WindowWorks.App.UI.Services.HotkeyApplyResult();
             }
+
+            public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyModifierSettings(bool? enableModifierMode, bool? autoTransparency, int? transparencyPercent, bool? showNotification)
+            {
+                return new WindowWorks.App.UI.Services.HotkeyApplyResult();
+            }
         }
     }
 }

@@ -27,14 +27,14 @@
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Opacity nudge</TextBlock>
                     <TextBlock x:Name="LblOpacityGesture" Width="203" Text="Ctrl + Mouse Wheel (over Title bar)" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <TextBlock Width="180">Click-Through (gesture)</TextBlock>
-                    <TextBlock x:Name="LblClickThroughGesture" Width="203" Text="Ctrl + Alt + Click (over Title bar)" />
-                </StackPanel>
+                </StackPanel>               
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Toggle Topmost</TextBlock>
                     <TextBlock x:Name="LblToggleGesture" Width="203" Text="Ctrl + Shift + Click (over Title bar)" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Width="180">Click-Through</TextBlock>
+                    <TextBlock x:Name="LblClickThroughGesture" Width="203" Text="Ctrl + Alt + Click (over Title bar)" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>
