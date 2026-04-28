@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace WindowWorks.App.UI.ViewModels
 {
-    public class GeneralSettingsViewModel : INotifyPropertyChanged
+    public class GeneralSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
         private bool _enableHighlight = true;
         private bool _enableConfirmations = true;

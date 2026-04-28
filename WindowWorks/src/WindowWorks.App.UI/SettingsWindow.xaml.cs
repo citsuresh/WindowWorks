@@ -176,65 +176,81 @@ namespace WindowWorks.App.UI
                 // Attempt to populate fields from HighlightSettingsControl if visible
                 if (ContentArea.Content is HighlightSettingsControl h)
                 {
-                    // Read values by finding named elements (lightweight approach)
-                    var tbColor = h.FindName("TxtBorderColor") as System.Windows.Controls.TextBox;
-                    var tbBorder = h.FindName("TxtBorderThickness") as System.Windows.Controls.TextBox;
-                    var tbCorner = h.FindName("TxtCornerRadius") as System.Windows.Controls.TextBox;
-                    var tbHighlight = h.FindName("TxtHighlightMs") as System.Windows.Controls.TextBox;
-                    var tbHud = h.FindName("TxtHudMs") as System.Windows.Controls.TextBox;
-                    var chkSys = h.FindName("ChkUseSystemColors") as System.Windows.Controls.CheckBox;
-                    if (tbColor != null)
+                    // Prefer ViewModel when available
+                    if (h.DataContext is WindowWorks.App.UI.ViewModels.ISettingsSectionViewModel sec)
                     {
-                        // Combine color and transparency into #AARRGGBB when possible.
-                        var colorText = tbColor.Text?.Trim() ?? string.Empty;
-                        // determine transparency slider if present
-                        var sld = h.FindName("SldBorderTransparency") as System.Windows.Controls.Slider;
-                        int percent = 0;
-                        try { if (sld != null) percent = (int)sld.Value; else if (h.FindName("TxtBorderTransparencyValue") is System.Windows.Controls.TextBlock tv && int.TryParse(tv.Text, out var v)) percent = v; } catch { }
-
-                        // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
-                        try
-                        {
-                            if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
-                            {
-                                var aHex = colorText.Substring(1, 2);
-                                if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
-                                {
-                                    percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
-                                }
-                            }
-                        }
-                        catch { }
-
-                        string finalColor = colorText;
-                        try
-                        {
-                            string baseHex = colorText ?? string.Empty;
-                            if (!string.IsNullOrWhiteSpace(baseHex))
-                            {
-                                if (baseHex.StartsWith("#"))
-                                {
-                                    if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
-                                    else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
-                                }
-                                // ensure 6-digit base
-                                if (baseHex.Length == 6)
-                                {
-                                    var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
-                                    finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
-                                }
-                            }
-                        }
-                        catch { }
-                        settingsDict["HighlightBorderColor"] = finalColor;
-                        // also persist percent for backward compatibility
-                        settingsDict["HighlightBorderTransparencyPercent"] = percent;
+                        // Ensure bindings have been pushed from UI to VM
+                        try { UpdateBindingSource(h, "TxtBorderColor", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "SldBorderTransparency", System.Windows.Controls.Slider.ValueProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtBorderThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtHighlightMs", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtHudMs", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        var dict = sec.ToDictionary();
+                        foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
                     }
-                    if (tbBorder != null && int.TryParse(tbBorder.Text, out var bt)) settingsDict["HighlightBorderThickness"] = bt;
-                    if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HighlightCornerRadius"] = cr;
-                    if (tbHighlight != null && int.TryParse(tbHighlight.Text, out var hm)) settingsDict["HighlightDurationMs"] = hm;
-                    if (tbHud != null && int.TryParse(tbHud.Text, out var um)) settingsDict["HudDurationMs"] = um;
-                    if (chkSys != null) settingsDict["UseSystemColors"] = chkSys.IsChecked == true;
+                    else
+                    {
+                        // Read values by finding named elements (legacy fallback)
+                        var tbColor = h.FindName("TxtBorderColor") as System.Windows.Controls.TextBox;
+                        var tbBorder = h.FindName("TxtBorderThickness") as System.Windows.Controls.TextBox;
+                        var tbCorner = h.FindName("TxtCornerRadius") as System.Windows.Controls.TextBox;
+                        var tbHighlight = h.FindName("TxtHighlightMs") as System.Windows.Controls.TextBox;
+                        var tbHud = h.FindName("TxtHudMs") as System.Windows.Controls.TextBox;
+                        var chkSys = h.FindName("ChkUseSystemColors") as System.Windows.Controls.CheckBox;
+                        if (tbColor != null)
+                        {
+                            // Combine color and transparency into #AARRGGBB when possible.
+                            var colorText = tbColor.Text?.Trim() ?? string.Empty;
+                            // determine transparency slider if present
+                            var sld = h.FindName("SldBorderTransparency") as System.Windows.Controls.Slider;
+                            int percent = 0;
+                            try { if (sld != null) percent = (int)sld.Value; else if (h.FindName("TxtBorderTransparencyValue") is System.Windows.Controls.TextBlock tv && int.TryParse(tv.Text, out var v)) percent = v; } catch { }
+
+                            // If percent is not set but the color contains an alpha channel (#AARRGGBB), derive percent from alpha
+                            try
+                            {
+                                if (percent == 0 && !string.IsNullOrWhiteSpace(colorText) && colorText.StartsWith("#") && colorText.Length == 9)
+                                {
+                                    var aHex = colorText.Substring(1, 2);
+                                    if (byte.TryParse(aHex, System.Globalization.NumberStyles.HexNumber, null, out var a))
+                                    {
+                                        percent = (int)Math.Round(100.0 - (a / 255.0 * 100.0));
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            string finalColor = colorText;
+                            try
+                            {
+                                string baseHex = colorText ?? string.Empty;
+                                if (!string.IsNullOrWhiteSpace(baseHex))
+                                {
+                                    if (baseHex.StartsWith("#"))
+                                    {
+                                        if (baseHex.Length == 9) baseHex = baseHex.Substring(3); // #AARRGGBB -> RRGGBB
+                                        else if (baseHex.Length == 7) baseHex = baseHex.Substring(1); // #RRGGBB -> RRGGBB
+                                    }
+                                    // ensure 6-digit base
+                                    if (baseHex.Length == 6)
+                                    {
+                                        var a = (byte)(255 * (100 - Math.Clamp(percent, 0, 100)) / 100.0);
+                                        finalColor = $"#{a:X2}{baseHex.ToUpperInvariant()}";
+                                    }
+                                }
+                            }
+                            catch { }
+                            settingsDict["HighlightBorderColor"] = finalColor;
+                            // also persist percent for backward compatibility
+                            settingsDict["HighlightBorderTransparencyPercent"] = percent;
+                        }
+                        if (tbBorder != null && int.TryParse(tbBorder.Text, out var bt)) settingsDict["HighlightBorderThickness"] = bt;
+                        if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HighlightCornerRadius"] = cr;
+                        if (tbHighlight != null && int.TryParse(tbHighlight.Text, out var hm)) settingsDict["HighlightDurationMs"] = hm;
+                        if (tbHud != null && int.TryParse(tbHud.Text, out var um)) settingsDict["HudDurationMs"] = um;
+                        if (chkSys != null) settingsDict["UseSystemColors"] = chkSys.IsChecked == true;
+                    }
                 }
 
                 // For General page, prefer ViewModel values when available (MVVM)

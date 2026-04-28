@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace WindowWorks.App.UI.ViewModels
 {
-    public class HighlightSettingsViewModel : INotifyPropertyChanged
+    public class HighlightSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
         private string? _borderColor; // stored as #RRGGBB or #AARRGGBB
         private int _borderTransparencyPercent;

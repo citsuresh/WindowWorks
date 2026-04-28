@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace WindowWorks.App.UI.ViewModels
 {
-    public class ClickThroughSettingsViewModel : INotifyPropertyChanged
+    public class ClickThroughSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
         private bool _enableGesture = true;
         private bool _gestureAutoTransparency = true;

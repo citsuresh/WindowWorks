@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace WindowWorks.App.UI.ViewModels
 {
-    public class ShortcutsSettingsViewModel : INotifyPropertyChanged
+    public class ShortcutsSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
         private string? _commandPalette;
         private string? _emergencyReset;

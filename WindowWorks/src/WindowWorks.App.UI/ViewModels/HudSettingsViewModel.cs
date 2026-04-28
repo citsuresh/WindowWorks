@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace WindowWorks.App.UI.ViewModels
 {
-    public class HudSettingsViewModel : INotifyPropertyChanged
+    public class HudSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
         private string? _backgroundColor;
         private int _transparencyPercent;
