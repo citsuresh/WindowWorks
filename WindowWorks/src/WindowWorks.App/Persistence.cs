@@ -29,7 +29,13 @@ namespace WindowWorks.App
             var path = Path.Combine(_appFolder, "settings.json");
             try
             {
-                if (!File.Exists(path)) return new Models.AppSettings();
+                if (!File.Exists(path))
+                {
+                    // No settings file present on first run - create one with defaults immediately
+                    var defaults = new Models.AppSettings();
+                    try { SaveSettings(defaults); } catch { /* ignore save failures on startup */ }
+                    return defaults;
+                }
                 var json = File.ReadAllText(path);
                 var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
                 var s = JsonSerializer.Deserialize<Models.AppSettings>(json, opts);
