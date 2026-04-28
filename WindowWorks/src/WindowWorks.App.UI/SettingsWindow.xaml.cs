@@ -90,8 +90,18 @@ namespace WindowWorks.App.UI
             {
                 case "General":
                     var g = new GeneralSettingsControl();
-                    // If we have initial JSON, try to load it
-                    if (_initialDict != null) g.LoadFromDictionary(_initialDict);
+                    // Use MVVM: create GeneralSettingsViewModel, load initial values and assign as DataContext
+                    try
+                    {
+                        var gvm = new WindowWorks.App.UI.ViewModels.GeneralSettingsViewModel();
+                        if (_initialDict != null) gvm.LoadFromDictionary(_initialDict);
+                        g.DataContext = gvm;
+                    }
+                    catch
+                    {
+                        // Fallback: if ViewModel creation fails, attempt legacy direct loading on the control
+                        try { g.LoadFromDictionary(_initialDict); } catch { }
+                    }
                     ContentArea.Content = g;
                     break;
                 case "Highlight":
@@ -218,13 +228,26 @@ namespace WindowWorks.App.UI
                     if (chkSys != null) settingsDict["UseSystemColors"] = chkSys.IsChecked == true;
                 }
 
-                // For General page, try to read those as well
+                // For General page, prefer ViewModel values when available (MVVM)
                 if (ContentArea.Content is GeneralSettingsControl g)
                 {
-                    var chk1 = g.FindName("ChkEnableHighlight") as System.Windows.Controls.CheckBox;
-                    var chk2 = g.FindName("ChkEnableConfirmations") as System.Windows.Controls.CheckBox;
-                    if (chk1 != null) settingsDict["EnableHighlight"] = chk1.IsChecked == true;
-                    if (chk2 != null) settingsDict["EnableConfirmations"] = chk2.IsChecked == true;
+                    // If a ViewModel is attached, use it
+                    if (g.DataContext is WindowWorks.App.UI.ViewModels.GeneralSettingsViewModel gvm)
+                    {
+                        // Ensure any bindings have been pushed
+                        try { UpdateBindingSource(g, "ChkEnableHighlight", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                        try { UpdateBindingSource(g, "ChkEnableConfirmations", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                        var dict = gvm.ToDictionary();
+                        foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
+                    }
+                    else
+                    {
+                        // Legacy fallback: read directly from named elements
+                        var chk1 = g.FindName("ChkEnableHighlight") as System.Windows.Controls.CheckBox;
+                        var chk2 = g.FindName("ChkEnableConfirmations") as System.Windows.Controls.CheckBox;
+                        if (chk1 != null) settingsDict["EnableHighlight"] = chk1.IsChecked == true;
+                        if (chk2 != null) settingsDict["EnableConfirmations"] = chk2.IsChecked == true;
+                    }
                 }
                 // For Shortcuts page, capture hotkey strings
                 if (ContentArea.Content is ShortcutsSettingsControl s)

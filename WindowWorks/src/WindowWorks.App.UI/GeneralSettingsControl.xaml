@@ -4,7 +4,7 @@
     Height="420" Width="520">
     <StackPanel Margin="12">
         <TextBlock FontSize="16" FontWeight="Bold">General</TextBlock>
-        <CheckBox x:Name="ChkEnableHighlight" Content="Enable Highlight" Margin="0,8,0,0" />
-        <CheckBox x:Name="ChkEnableConfirmations" Content="Enable HUD confirmations" Margin="0,8,0,0" />
+        <CheckBox x:Name="ChkEnableHighlight" Content="Enable Highlight" Margin="0,8,0,0" IsChecked="{Binding EnableHighlight, Mode=TwoWay}" />
+        <CheckBox x:Name="ChkEnableConfirmations" Content="Enable HUD confirmations" Margin="0,8,0,0" IsChecked="{Binding EnableConfirmations, Mode=TwoWay}" />
     </StackPanel>
 </UserControl>
