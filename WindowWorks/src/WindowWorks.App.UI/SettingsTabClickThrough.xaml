@@ -10,15 +10,15 @@
         <GroupBox Header="Gesture Mode" Margin="0,6,0,0">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkEnableGesture" Width="320">Enable Gesture Mode (Ctrl+Alt+Click) (over the Title bar)</CheckBox>
+                    <CheckBox x:Name="ChkEnableGesture" Width="320" IsChecked="{Binding EnableGesture, Mode=TwoWay}">Enable Gesture Mode (Ctrl+Alt+Click) (over the Title bar)</CheckBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkGestureAutoTransparency">Automatically set transparency when enabled</CheckBox>
-                    <Slider x:Name="SldGestureTransparency" Width="180" Minimum="0" Maximum="100" Value="50" Margin="8,0,0,0" />
-                    <TextBlock x:Name="TxtGestureTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="50%" />
+                    <CheckBox x:Name="ChkGestureAutoTransparency" IsChecked="{Binding GestureAutoTransparency, Mode=TwoWay}">Automatically set transparency when enabled</CheckBox>
+                    <Slider x:Name="SldGestureTransparency" Width="180" Minimum="0" Maximum="100" Margin="8,0,0,0" Value="{Binding GestureTransparencyPercent, Mode=TwoWay}" />
+                    <TextBlock x:Name="TxtGestureTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="{Binding GestureTransparencyPercent, Mode=OneWay, StringFormat={}{0}%}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkGestureNotify">Display notification when Gesture Mode is enabled</CheckBox>
+                    <CheckBox x:Name="ChkGestureNotify" IsChecked="{Binding GestureShowNotification, Mode=TwoWay}">Display notification when Gesture Mode is enabled</CheckBox>
                 </StackPanel>
                 <TextBlock Margin="0,8,0,0" TextWrapping="Wrap">Once Gesture Mode is enabled, it can be disabled by pressing the Reset click-through global shortcut or by selecting Reset Click-Through from the tray menu.</TextBlock>
             </StackPanel>
@@ -27,15 +27,15 @@
         <GroupBox Header="Modifier Mode" Margin="0,10,0,0">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkEnableModifier" Width="320">Enable Modifier Mode (Ctrl+Alt+Shift held)</CheckBox>
+                    <CheckBox x:Name="ChkEnableModifier" Width="320" IsChecked="{Binding EnableModifier, Mode=TwoWay}">Enable Modifier Mode (Ctrl+Alt+Shift held)</CheckBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkModifierAutoTransparency">Automatically set transparency while held</CheckBox>
-                    <Slider x:Name="SldModifierTransparency" Width="180" Minimum="0" Maximum="100" Value="50" Margin="8,0,0,0" ValueChanged="SldModifierTransparency_ValueChanged" />
-                    <TextBlock x:Name="TxtModifierTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="50%" />
+                    <CheckBox x:Name="ChkModifierAutoTransparency" IsChecked="{Binding ModifierAutoTransparency, Mode=TwoWay}">Automatically set transparency while held</CheckBox>
+                    <Slider x:Name="SldModifierTransparency" Width="180" Minimum="0" Maximum="100" Margin="8,0,0,0" Value="{Binding ModifierTransparencyPercent, Mode=TwoWay}" />
+                    <TextBlock x:Name="TxtModifierTransparencyValue" Width="40" Margin="6,2,0,0" VerticalAlignment="Center" Text="{Binding ModifierTransparencyPercent, Mode=OneWay, StringFormat={}{0}%}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                    <CheckBox x:Name="ChkModifierNotify">Display notification when Modifier Mode is used</CheckBox>
+                    <CheckBox x:Name="ChkModifierNotify" IsChecked="{Binding ModifierShowNotification, Mode=TwoWay}">Display notification when Modifier Mode is used</CheckBox>
                 </StackPanel>
                 <TextBlock Margin="0,8,0,0" TextWrapping="Wrap">When Modifier Mode is enabled, holding Ctrl+Alt+Shift will make the window under the cursor click-through until the keys are released.</TextBlock>
             </StackPanel>

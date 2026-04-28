@@ -146,7 +146,16 @@ namespace WindowWorks.App.UI
                     break;
                 case "Click-Through":
                     var ct = new SettingsTabClickThrough();
-                    try { if (_initialDict != null) ct.LoadFromSettings(_initialDict); } catch { }
+                    try
+                    {
+                        var ctVm = new WindowWorks.App.UI.ViewModels.ClickThroughSettingsViewModel();
+                        if (_initialDict != null) ctVm.LoadFromDictionary(_initialDict);
+                        ct.DataContext = ctVm;
+                    }
+                    catch
+                    {
+                        try { if (_initialDict != null) ct.LoadFromSettings(_initialDict); } catch { }
+                    }
                     ContentArea.Content = ct;
                     break;
 

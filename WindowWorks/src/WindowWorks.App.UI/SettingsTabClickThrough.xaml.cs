@@ -78,11 +78,21 @@ namespace WindowWorks.App.UI
             catch { }
         }
 
+        // Legacy code-behind behavior replaced by MVVM.
+        // Public helpers remain to aid backward compatibility if other code calls them, but they now prefer the ViewModel when present.
         public void LoadFromSettings(System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>? d)
         {
             if (d == null) return;
             try
             {
+                var vm = this.DataContext as WindowWorks.App.UI.ViewModels.ClickThroughSettingsViewModel;
+                if (vm != null)
+                {
+                    vm.LoadFromDictionary(d);
+                    return;
+                }
+
+                // Fallback to manual population
                 if (d.TryGetValue("EnableClickThroughGestureMode", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkEnableGesture.IsChecked = true; else if (d.TryGetValue("EnableClickThroughGestureMode", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkEnableGesture.IsChecked = false;
                 if (d.TryGetValue("ClickThrough_Gesture_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.True) ChkGestureAutoTransparency.IsChecked = true; else if (d.TryGetValue("ClickThrough_Gesture_AutoTransparency", out v) && v.ValueKind == System.Text.Json.JsonValueKind.False) ChkGestureAutoTransparency.IsChecked = false;
                 if (d.TryGetValue("ClickThrough_Gesture_TransparencyPercent", out v) && v.TryGetInt32(out var tp))
@@ -109,6 +119,17 @@ namespace WindowWorks.App.UI
         {
             try
             {
+                var vm = this.DataContext as WindowWorks.App.UI.ViewModels.ClickThroughSettingsViewModel;
+                if (vm != null)
+                {
+                    var d = vm.ToDictionary();
+                    foreach (var kv in d)
+                    {
+                        dict[kv.Key] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(kv.Value)).RootElement;
+                    }
+                    return;
+                }
+
                 dict["EnableClickThroughGestureMode"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkEnableGesture.IsChecked ?? false)).RootElement;
                 dict["ClickThrough_Gesture_AutoTransparency"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ChkGestureAutoTransparency.IsChecked ?? false)).RootElement;
                 dict["ClickThrough_Gesture_TransparencyPercent"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize((int)SldGestureTransparency.Value)).RootElement;
