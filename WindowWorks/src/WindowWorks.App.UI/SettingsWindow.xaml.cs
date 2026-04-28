@@ -274,13 +274,28 @@ namespace WindowWorks.App.UI
                         if (chk2 != null) settingsDict["EnableConfirmations"] = chk2.IsChecked == true;
                     }
                 }
-                // For Shortcuts page, capture hotkey strings
+                // For Shortcuts page, prefer ViewModel values when available, otherwise capture hotkey strings from the control
                 if (ContentArea.Content is ShortcutsSettingsControl s)
                 {
-                    var picker1 = s.FindName("PickerCommandPalette") as ShortcutPicker;
-                    var picker2 = s.FindName("PickerEmergencyReset") as ShortcutPicker;
-                    if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
-                    if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
+                    if (s.DataContext is WindowWorks.App.UI.ViewModels.ISettingsSectionViewModel sVm)
+                    {
+                        try
+                        {
+                            // Ensure any bindings on the control have been pushed where applicable
+                            try { UpdateBindingSource(s, "PickerCommandPalette", System.Windows.Controls.Control.TagProperty); } catch { }
+                            try { UpdateBindingSource(s, "PickerEmergencyReset", System.Windows.Controls.Control.TagProperty); } catch { }
+                            var dict = sVm.ToDictionary();
+                            foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
+                        }
+                        catch { }
+                    }
+                    else
+                    {
+                        var picker1 = s.FindName("PickerCommandPalette") as ShortcutPicker;
+                        var picker2 = s.FindName("PickerEmergencyReset") as ShortcutPicker;
+                        if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
+                        if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
+                    }
                     // Opacity nudge and Toggle Topmost are mouse gestures and are not saved as keyboard shortcuts.
                 }
                 // For Click-Through page, capture Gesture Mode settings
