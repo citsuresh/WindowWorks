@@ -9,6 +9,8 @@ namespace WindowWorks.App.UI
         private bool _suppressNotifications = false;
         // Simple CLR event for change notifications (preferable for MVVM transition)
         public event Action<ShortcutsSettingsControl>? HotkeysChanged;
+        // General change notifier so parent can track dirty state
+        public event Action? SettingsChanged;
 
         public ShortcutsSettingsControl()
         {
@@ -43,6 +45,7 @@ namespace WindowWorks.App.UI
             UpdateInitialDictFromUi();
             // Notify parent via CLR event
             HotkeysChanged?.Invoke(this);
+            SettingsChanged?.Invoke();
         }
 
         private void ValidateConflicts()
@@ -98,6 +101,7 @@ namespace WindowWorks.App.UI
                 ValidateConflicts();
                 UpdateInitialDictFromUi();
                 HotkeysChanged?.Invoke(this);
+                SettingsChanged?.Invoke();
             }
             else if (sender == PickerEmergencyReset)
             {
@@ -105,6 +109,7 @@ namespace WindowWorks.App.UI
                 ValidateConflicts();
                 UpdateInitialDictFromUi();
                 HotkeysChanged?.Invoke(this);
+                SettingsChanged?.Invoke();
             }
             // Only handle editable keyboard pickers
         }
@@ -141,6 +146,7 @@ namespace WindowWorks.App.UI
                     LblOpacityGesture.Text = win.Captured;
                     UpdateInitialDictFromUi();
                     HotkeysChanged?.Invoke(this);
+                    SettingsChanged?.Invoke();
                 }
             }
             catch { }
@@ -166,6 +172,7 @@ namespace WindowWorks.App.UI
                     LblToggleGesture.Text = win.Captured;
                     UpdateInitialDictFromUi();
                     HotkeysChanged?.Invoke(this);
+                    SettingsChanged?.Invoke();
                 }
             }
             catch { }
@@ -197,6 +204,7 @@ namespace WindowWorks.App.UI
                         ValidateConflicts();
                         UpdateInitialDictFromUi();
                         HotkeysChanged?.Invoke(this);
+                        SettingsChanged?.Invoke();
                     }
                 }
             }

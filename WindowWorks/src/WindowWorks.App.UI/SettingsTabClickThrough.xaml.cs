@@ -5,6 +5,7 @@ namespace WindowWorks.App.UI
 {
     public partial class SettingsTabClickThrough : UserControl
     {
+        public event Action? SettingsChanged;
         private TextBlock? _transparencyValueTextBlock;
         // This control is a UI for Click-Through settings.
         // Wire-up: call LoadFromSettings with settings dictionary to populate controls, and
@@ -39,6 +40,21 @@ namespace WindowWorks.App.UI
                         _transparencyValueTextBlock.Text = ((int)sld.Value).ToString() + "%";
                     }
                 }
+
+                // Attach change handlers to controls to notify parent window that this section became dirty
+                try
+                {
+                    var chk = this.FindName("ChkEnableGesture") as CheckBox; if (chk != null) { chk.Checked += (_, __) => SettingsChanged?.Invoke(); chk.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                    var chk2 = this.FindName("ChkGestureAutoTransparency") as CheckBox; if (chk2 != null) { chk2.Checked += (_, __) => SettingsChanged?.Invoke(); chk2.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                    var chk3 = this.FindName("ChkGestureNotify") as CheckBox; if (chk3 != null) { chk3.Checked += (_, __) => SettingsChanged?.Invoke(); chk3.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                    var sld2 = this.FindName("SldGestureTransparency") as Slider; if (sld2 != null) { sld2.ValueChanged += (_, __) => SettingsChanged?.Invoke(); }
+
+                    var chkm = this.FindName("ChkEnableModifier") as CheckBox; if (chkm != null) { chkm.Checked += (_, __) => SettingsChanged?.Invoke(); chkm.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                    var chkma = this.FindName("ChkModifierAutoTransparency") as CheckBox; if (chkma != null) { chkma.Checked += (_, __) => SettingsChanged?.Invoke(); chkma.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                    var sldm = this.FindName("SldModifierTransparency") as Slider; if (sldm != null) { sldm.ValueChanged += (_, __) => SettingsChanged?.Invoke(); }
+                    var chkmn = this.FindName("ChkModifierNotify") as CheckBox; if (chkmn != null) { chkmn.Checked += (_, __) => SettingsChanged?.Invoke(); chkmn.Unchecked += (_, __) => SettingsChanged?.Invoke(); }
+                }
+                catch { }
             }
             catch { }
         }
@@ -59,6 +75,8 @@ namespace WindowWorks.App.UI
                         var tb = this.FindName("TxtGestureTransparencyValue") as TextBlock;
                         if (tb != null) tb.Text = ((int)sld.Value).ToString() + "%";
                     }
+                    // notify parent
+                    try { SettingsChanged?.Invoke(); } catch { }
                 }
             }
             catch { }
@@ -73,6 +91,7 @@ namespace WindowWorks.App.UI
                 {
                     if (_modifierTransparencyTextBlock == null) _modifierTransparencyTextBlock = this.FindName("TxtModifierTransparencyValue") as TextBlock;
                     if (_modifierTransparencyTextBlock != null) _modifierTransparencyTextBlock.Text = ((int)sld.Value).ToString() + "%";
+                    try { SettingsChanged?.Invoke(); } catch { }
                 }
             }
             catch { }

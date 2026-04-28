@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Diagnostics;
 using System.IO;
 
@@ -18,21 +19,74 @@ namespace WindowWorks.App.UI
         private static SettingsWindow? s_activeWindow;
         private static TaskCompletionSource<string?>? s_activeTcs;
         private static readonly object s_lock = new();
+        // Cache per-section control and VM so changes persist when switching tabs
+        private class SectionData
+        {
+            public string Key = string.Empty;
+            public UserControl? Control;
+            public ViewModels.ISettingsSectionViewModel? Vm;
+            public bool Dirty;
+            public System.Windows.Controls.TextBlock? StarIndicator;
+            public System.Windows.Controls.ListBoxItem? NavItem;
+        }
+
+        private void UpdateNavItemDirty(string key, bool isDirty)
+        {
+            try
+            {
+                if (!_sections.TryGetValue(key, out var sd)) return;
+                sd.Dirty = isDirty;
+                if (sd.StarIndicator != null)
+                {
+                    sd.StarIndicator.Visibility = isDirty ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                    // Also bold the text by updating the sibling Run if possible
+                    if (sd.NavItem?.Content is System.Windows.Controls.StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is System.Windows.Controls.TextBlock tb)
+                    {
+                        tb.FontWeight = isDirty ? System.Windows.FontWeights.SemiBold : System.Windows.FontWeights.Normal;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        private void WireVmDirtyTracking(string key, System.ComponentModel.INotifyPropertyChanged vm)
+        {
+            if (vm == null) return;
+            vm.PropertyChanged += (s, e) =>
+            {
+                try
+                {
+                    // Debug: log VM property changes for troubleshooting
+                    try { System.Diagnostics.Debug.WriteLine($"[SettingsWindow] VM change: {key} -> {e.PropertyName}"); } catch { }
+                    // Mark section dirty on any VM property change
+                    UpdateNavItemDirty(key, true);
+                    if (_sections.TryGetValue(key, out var sd)) sd.Dirty = true;
+                }
+                catch { }
+            };
+        }
+        private readonly System.Collections.Generic.Dictionary<string, SectionData> _sections = new();
 
         public SettingsWindow()
         {
             InitializeComponent();
-            // Ensure Shortcuts nav item exists in case XAML was modified or running older binaries
+            // Build navigation list with mod indicator placeholders so we can mark modified sections
             try
             {
-                bool hasShortcuts = false;
-                foreach (var it in NavList.Items)
+                NavList.Items.Clear();
+                var sections = new[] { "General", "Highlight", "HUD", "Click-Through", "Shortcuts" };
+                foreach (var s in sections)
                 {
-                    if (it is System.Windows.Controls.ListBoxItem lbi && (lbi.Content as string) == "Shortcuts") { hasShortcuts = true; break; }
-                }
-                if (!hasShortcuts)
-                {
-                    NavList.Items.Add(new System.Windows.Controls.ListBoxItem() { Content = "Shortcuts" });
+                    var nameTb = new System.Windows.Controls.TextBlock(new System.Windows.Documents.Run(s));
+                    var star = new System.Windows.Controls.TextBlock(new System.Windows.Documents.Run(" *")) { Visibility = System.Windows.Visibility.Collapsed, FontWeight = System.Windows.FontWeights.Bold };
+                    var sp = new System.Windows.Controls.StackPanel() { Orientation = System.Windows.Controls.Orientation.Horizontal };
+                    sp.Children.Add(nameTb);
+                    sp.Children.Add(star);
+                    var lbi = new System.Windows.Controls.ListBoxItem() { Content = sp, Tag = s };
+                    NavList.Items.Add(lbi);
+                    // Initialize section data cache
+                    var sd = new SectionData() { Key = s, Control = null, Vm = null, Dirty = false, StarIndicator = star, NavItem = lbi };
+                    _sections[s] = sd;
                 }
                 if (NavList.SelectedIndex < 0) NavList.SelectedIndex = 0;
             }
@@ -50,6 +104,40 @@ namespace WindowWorks.App.UI
                     _initialDict = JsonSerializer.Deserialize<System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>>(currentJson);
                     // Defer applying values until pages are shown; consumer may expand later
                 }
+            }
+            catch { }
+            // Create VMs for all sections up-front so state is preserved even if a tab was never shown
+            try
+            {
+                // General
+                var gvm = new WindowWorks.App.UI.ViewModels.GeneralSettingsViewModel();
+                try { if (_initialDict != null) gvm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["General"].Vm = gvm;
+                try { WireVmDirtyTracking("General", gvm); } catch { }
+
+                // Highlight
+                var hvm = new WindowWorks.App.UI.ViewModels.HighlightSettingsViewModel();
+                try { if (_initialDict != null) hvm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["Highlight"].Vm = hvm;
+                try { WireVmDirtyTracking("Highlight", hvm); } catch { }
+
+                // HUD
+                var hudVm = new WindowWorks.App.UI.ViewModels.HudSettingsViewModel();
+                try { if (_initialDict != null) hudVm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["HUD"].Vm = hudVm;
+                try { WireVmDirtyTracking("HUD", hudVm); } catch { }
+
+                // Click-Through
+                var ctVm = new WindowWorks.App.UI.ViewModels.ClickThroughSettingsViewModel();
+                try { if (_initialDict != null) ctVm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["Click-Through"].Vm = ctVm;
+                try { WireVmDirtyTracking("Click-Through", ctVm); } catch { }
+
+                // Shortcuts
+                var sVm = new WindowWorks.App.UI.ViewModels.ShortcutsSettingsViewModel();
+                try { if (_initialDict != null) sVm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["Shortcuts"].Vm = sVm;
+                try { WireVmDirtyTracking("Shortcuts", sVm); } catch { }
             }
             catch { }
             // Now that initial dictionary is available, select first page to ensure values are applied.
@@ -86,7 +174,19 @@ namespace WindowWorks.App.UI
         {
             var item = NavList.SelectedItem as System.Windows.Controls.ListBoxItem;
             if (item == null) return;
-            switch (item.Content as string)
+            var key = item.Tag as string ?? (item.Content as string) ?? string.Empty;
+            // Reuse cached control/VM if present
+            if (_sections.TryGetValue(key, out var sd))
+            {
+                if (sd.Control != null)
+                {
+                    // Ensure VM is attached if available
+                    if (sd.Vm != null) sd.Control.DataContext = sd.Vm;
+                    ContentArea.Content = sd.Control;
+                    return;
+                }
+            }
+            switch (key)
             {
                 case "General":
                     var g = new GeneralSettingsControl();
@@ -96,6 +196,9 @@ namespace WindowWorks.App.UI
                         var gvm = new WindowWorks.App.UI.ViewModels.GeneralSettingsViewModel();
                         if (_initialDict != null) gvm.LoadFromDictionary(_initialDict);
                         g.DataContext = gvm;
+                        _sections["General"].Vm = gvm;
+                        // Track dirty state when VM properties change
+                        try { WireVmDirtyTracking("General", gvm); } catch { }
                     }
                     catch
                     {
@@ -103,6 +206,7 @@ namespace WindowWorks.App.UI
                         try { g.LoadFromDictionary(_initialDict); } catch { }
                     }
                     ContentArea.Content = g;
+                    _sections["General"].Control = g;
                     break;
                 case "Highlight":
                     var h = new HighlightSettingsControl();
@@ -110,7 +214,10 @@ namespace WindowWorks.App.UI
                     var vm = new WindowWorks.App.UI.ViewModels.HighlightSettingsViewModel();
                     try { if (_initialDict != null) vm.LoadFromDictionary(_initialDict); } catch { }
                     h.DataContext = vm;
+                    _sections["Highlight"].Vm = vm;
+                    try { WireVmDirtyTracking("Highlight", vm); } catch { }
                     ContentArea.Content = h;
+                    _sections["Highlight"].Control = h;
                     break;
                 case "HUD":
                     var hud = new HudSettingsControl();
@@ -120,12 +227,15 @@ namespace WindowWorks.App.UI
                         var hudVm = new WindowWorks.App.UI.ViewModels.HudSettingsViewModel();
                         if (_initialDict != null) hudVm.LoadFromDictionary(_initialDict);
                         hud.DataContext = hudVm;
+                        _sections["HUD"].Vm = hudVm;
+                        try { WireVmDirtyTracking("HUD", hudVm); } catch { }
                     }
                     catch
                     {
                         // If VM setup fails, still show the control without pre-loading (legacy fallback removed)
                     }
                     ContentArea.Content = hud;
+                    _sections["HUD"].Control = hud;
                     break;
                 case "Shortcuts":
                     var sControl = new ShortcutsSettingsControl();
@@ -135,13 +245,17 @@ namespace WindowWorks.App.UI
                         var sVm = new WindowWorks.App.UI.ViewModels.ShortcutsSettingsViewModel();
                         if (_initialDict != null) sVm.LoadFromDictionary(_initialDict);
                         sControl.DataContext = sVm;
+                        _sections["Shortcuts"].Vm = sVm;
+                        try { WireVmDirtyTracking("Shortcuts", sVm); } catch { }
                     }
                     catch
                     {
                         // If VM setup fails, fall back to control (legacy behavior removed)
                     }
                     // Subscribe to simple CLR event in case parent needs to react; control updates the dictionary itself.
-                    sControl.HotkeysChanged += (ctrl) => { /* no-op */ };
+                    sControl.HotkeysChanged += (_) => { /* no-op */ };
+                    // Subscribe to control-level settings changed notification when available to mark section dirty immediately.
+                    try { sControl.SettingsChanged += () => { _sections["Shortcuts"].Dirty = true; UpdateNavItemDirty("Shortcuts", true); }; } catch { }
                     ContentArea.Content = sControl;
                     break;
                 case "Click-Through":
@@ -151,12 +265,16 @@ namespace WindowWorks.App.UI
                         var ctVm = new WindowWorks.App.UI.ViewModels.ClickThroughSettingsViewModel();
                         if (_initialDict != null) ctVm.LoadFromDictionary(_initialDict);
                         ct.DataContext = ctVm;
+                        _sections["Click-Through"].Vm = ctVm;
+                        try { WireVmDirtyTracking("Click-Through", ctVm); } catch { }
                     }
                     catch
                     {
                         try { if (_initialDict != null) ct.LoadFromSettings(_initialDict); } catch { }
                     }
                     ContentArea.Content = ct;
+                    try { ct.SettingsChanged += () => { _sections["Click-Through"].Dirty = true; UpdateNavItemDirty("Click-Through", true); }; } catch { }
+                    _sections["Click-Through"].Control = ct;
                     break;
 
                 default:
@@ -400,6 +518,36 @@ namespace WindowWorks.App.UI
                         if (chkPreset != null) settingsDict["ShowHudOnPresetApplied"] = chkPreset.IsChecked == true;
                     }
                 }
+                // Collect dictionaries from all sections (VMs preferred)
+                foreach (var kv in _sections)
+                {
+                    try
+                    {
+                        var sd = kv.Value;
+                        if (sd.Vm != null)
+                        {
+                            var d = sd.Vm.ToDictionary();
+                            foreach (var k2 in d) settingsDict[k2.Key] = k2.Value;
+                        }
+                        else if (sd.Control != null)
+                        {
+                            // Fallback: if control exposes SaveToDictionary, call it
+                            try
+                            {
+                                var mi = sd.Control.GetType().GetMethod("SaveToDictionary");
+                                if (mi != null)
+                                {
+                                    var dictParam = new System.Collections.Generic.Dictionary<string, System.Text.Json.JsonElement>();
+                                    mi.Invoke(sd.Control, new object[] { dictParam });
+                                    foreach (var kv2 in dictParam) settingsDict[kv2.Key] = kv2.Value;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                }
+
                 // Signal result as JSON and close
                 // Apply hotkey changes immediately via host service so keyboard hotkeys re-register without restart.
                 try
@@ -442,6 +590,17 @@ namespace WindowWorks.App.UI
                     File.WriteAllText(path, json);
                     Debug.WriteLine($"[SettingsWindow] Emitted settings to: {path}");
                     Debug.WriteLine(json);
+                }
+                catch { }
+
+                // Mark all sections as clean now that we've generated the merged JSON
+                try
+                {
+                    foreach (var sd in _sections.Values)
+                    {
+                        sd.Dirty = false;
+                        try { UpdateNavItemDirty(sd.Key, false); } catch { }
+                    }
                 }
                 catch { }
 
