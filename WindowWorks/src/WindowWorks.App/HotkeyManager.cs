@@ -436,12 +436,14 @@ namespace WindowWorks.App
                 }
                 else
                 {
-                    RegisterHotkey(1, HotkeyModifiers.Win | HotkeyModifiers.Shift, Keys.R);
+                    // Fallback to Ctrl+Shift+R (legacy behavior expected by UI)
+                    RegisterHotkey(1, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
                 }
             }
             else
             {
-                RegisterHotkey(1, HotkeyModifiers.Win | HotkeyModifiers.Shift, Keys.R);
+                // Default emergency reset hotkey: Ctrl+Shift+R
+                RegisterHotkey(1, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
             }
 
             // NOTE: Click-Through Reset hotkey registration removed to avoid conflicts. Use tray menu or Gesture reset instead.

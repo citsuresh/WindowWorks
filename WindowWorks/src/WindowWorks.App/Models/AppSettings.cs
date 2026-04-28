@@ -56,15 +56,15 @@ namespace WindowWorks.App.Models
         // Reset shortcut for click-through gesture (global shortcut)
         public string HotkeyClickThroughReset { get; set; } = "Ctrl+Alt+C";
         // When true, automatically set transparency when enabling gesture mode
-        public bool ClickThrough_Gesture_AutoTransparency { get; set; } = false;
+        public bool ClickThrough_Gesture_AutoTransparency { get; set; } = true;
         // Transparency percent to apply when enabling gesture mode
         public int ClickThrough_Gesture_TransparencyPercent { get; set; } = 50;
         // Show notification when gesture mode is enabled
         public bool ClickThrough_Gesture_ShowNotification { get; set; } = true;
 
         // Modifier Mode settings - temporary click-through while modifier combo is held
-        public bool EnableClickThroughModifierMode { get; set; } = false;
-        public bool ClickThrough_Modifier_AutoTransparency { get; set; } = false;
+        public bool EnableClickThroughModifierMode { get; set; } = true;
+        public bool ClickThrough_Modifier_AutoTransparency { get; set; } = true;
         public int ClickThrough_Modifier_TransparencyPercent { get; set; } = 50;
         public bool ClickThrough_Modifier_ShowNotification { get; set; } = true;
 
