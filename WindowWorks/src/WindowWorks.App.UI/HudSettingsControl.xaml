@@ -2,7 +2,7 @@
     <UserControl x:Class="WindowWorks.App.UI.HudSettingsControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Height="367" Width="550">
+    Height="450" Width="550">
     <StackPanel Margin="12">
         <TextBlock FontSize="16" FontWeight="Bold">HUD settings</TextBlock>
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
