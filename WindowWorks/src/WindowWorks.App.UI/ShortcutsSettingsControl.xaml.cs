@@ -116,11 +116,13 @@ namespace WindowWorks.App.UI
 
         private void BtnEditCommand_Click(object? sender, System.Windows.RoutedEventArgs e)
         {
+            // Handled by ViewModel command in MVVM mode. Keep for backward compatibility only.
             ShowCaptureForPicker(PickerCommandPalette);
         }
 
         private void BtnEditEmergency_Click(object? sender, System.Windows.RoutedEventArgs e)
         {
+            // Handled by ViewModel command in MVVM mode. Keep for backward compatibility only.
             ShowCaptureForPicker(PickerEmergencyReset);
         }
 

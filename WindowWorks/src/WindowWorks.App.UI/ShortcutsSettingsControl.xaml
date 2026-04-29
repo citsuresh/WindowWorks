@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="clr-namespace:WindowWorks.App.UI"
-    Height="420" Width="520">
+    Height="420" Width="720">
     <StackPanel Margin="12">
         <TextBlock FontSize="16" FontWeight="Bold">Shortcuts</TextBlock>
         <TextBlock Margin="0,8,0,0">Configure keyboard shortcuts and mouse gestures used by WindowWorks.</TextBlock>
@@ -11,13 +11,15 @@
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Command palette</TextBlock>
-                    <TextBlock x:Name="LblCommandDisplay" Width="203" VerticalAlignment="Center">Win+`</TextBlock>
-                    <local:ShortcutPicker x:Name="PickerCommandPalette" Width="180" ShortcutChanged="OnShortcutChanged" Visibility="Collapsed" />
+                    <TextBlock x:Name="LblCommandDisplay" Width="203" VerticalAlignment="Center" Text="{Binding CommandPalette, TargetNullValue=''}" />
+                    <local:ShortcutPicker x:Name="PickerCommandPalette" Width="180" Shortcut="{Binding CommandPalette, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
+                    <Button x:Name="BtnEditCommand" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditCommandPalette}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Reset All</TextBlock>
-                    <TextBlock x:Name="LblEmergencyDisplay" Width="203" VerticalAlignment="Center">Ctrl+Shift+R</TextBlock>
-                    <local:ShortcutPicker x:Name="PickerEmergencyReset" Width="180" ShortcutChanged="OnShortcutChanged" Visibility="Collapsed" />
+                    <TextBlock x:Name="LblEmergencyDisplay" Width="203" VerticalAlignment="Center" Text="{Binding EmergencyReset, TargetNullValue=''}" />
+                    <local:ShortcutPicker x:Name="PickerEmergencyReset" Width="180" Shortcut="{Binding EmergencyReset, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
+                    <Button x:Name="BtnEditEmergency" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditEmergencyReset}" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>
@@ -26,19 +28,19 @@
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Opacity nudge</TextBlock>
-                    <TextBlock x:Name="LblOpacityGesture" Width="292" Text="Ctrl + Mouse Wheel (over Title bar)" />
+                    <TextBlock x:Name="LblOpacityGesture" Width="292" Text="{Binding OpacityGesture, TargetNullValue='Ctrl + Mouse Wheel (over Title bar)'}" />
                 </StackPanel>               
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Toggle Topmost</TextBlock>
-                    <TextBlock x:Name="LblToggleGesture" Width="291" Text="Ctrl + Shift + Click (over Title bar)" />
+                    <TextBlock x:Name="LblToggleGesture" Width="291" Text="{Binding ToggleGesture, TargetNullValue='Ctrl + Shift + Click (over Title bar)'}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Click-Through (Gesture Mode)</TextBlock>
-                    <TextBlock x:Name="LblClickThroughGesture" Width="291" Text="Ctrl + Alt + Click (over Title bar)" />
+                    <TextBlock x:Name="LblClickThroughGesture" Width="291" Text="{Binding ClickThroughGesture, TargetNullValue='Ctrl + Alt + Click (over Title bar)'}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Click-Through (Modifier Mode)</TextBlock>
-                    <TextBlock x:Name="LblClickThroughModifier" Width="291" Text="Ctrl + Alt + Shift (hold) (over the Title bar)" />
+                    <TextBlock x:Name="LblClickThroughModifier" Width="291" Text="{Binding ClickThroughModifier, TargetNullValue='Ctrl + Alt + Shift (hold) (over the Title bar)'}" />
                 </StackPanel>
             </StackPanel>
         </GroupBox>

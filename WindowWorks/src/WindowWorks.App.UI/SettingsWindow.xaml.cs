@@ -558,23 +558,31 @@ namespace WindowWorks.App.UI
                     if (settingsDict.TryGetValue("HotkeyEmergencyReset", out var erObj) && erObj is string erStr) er = erStr;
                     try
                     {
-                        var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null);
-                        // Optionally, UI could surface res to show per-key errors. For now we ignore the result.
+                        // Only apply hotkey changes if the Shortcuts section was modified to avoid re-registering unchanged hotkeys
+                        if (_sections.TryGetValue("Shortcuts", out var shortcutsSection) && shortcutsSection.Dirty)
+                        {
+                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null);
+                            // Optionally, UI could surface res to show per-key errors. For now we ignore the result.
+                        }
                     }
                     catch { }
 
                     // Also apply modifier mode settings immediately via host service
                     try
                     {
-                        bool? enableMod = null;
-                        bool? modAuto = null;
-                        int? modTp = null;
-                        bool? modNotify = null;
-                        if (settingsDict.TryGetValue("EnableClickThroughModifierMode", out var em)) { if (em is bool b) enableMod = b; }
-                        if (settingsDict.TryGetValue("ClickThrough_Modifier_AutoTransparency", out var ma)) { if (ma is bool b2) modAuto = b2; }
-                        if (settingsDict.TryGetValue("ClickThrough_Modifier_TransparencyPercent", out var mt)) { if (mt is int iv) modTp = iv; }
-                        if (settingsDict.TryGetValue("ClickThrough_Modifier_ShowNotification", out var mn)) { if (mn is bool b3) modNotify = b3; }
-                        try { var r2 = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyModifierSettings(enableMod, modAuto, modTp, modNotify); } catch { }
+                        // Only apply modifier settings if the Click-Through section was modified to prevent re-applying unchanged modifier settings
+                        if (_sections.TryGetValue("Click-Through", out var ctSection) && ctSection.Dirty)
+                        {
+                            bool? enableMod = null;
+                            bool? modAuto = null;
+                            int? modTp = null;
+                            bool? modNotify = null;
+                            if (settingsDict.TryGetValue("EnableClickThroughModifierMode", out var em)) { if (em is bool b) enableMod = b; }
+                            if (settingsDict.TryGetValue("ClickThrough_Modifier_AutoTransparency", out var ma)) { if (ma is bool b2) modAuto = b2; }
+                            if (settingsDict.TryGetValue("ClickThrough_Modifier_TransparencyPercent", out var mt)) { if (mt is int iv) modTp = iv; }
+                            if (settingsDict.TryGetValue("ClickThrough_Modifier_ShowNotification", out var mn)) { if (mn is bool b3) modNotify = b3; }
+                            try { var r2 = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyModifierSettings(enableMod, modAuto, modTp, modNotify); } catch { }
+                        }
                     }
                     catch { }
                 }

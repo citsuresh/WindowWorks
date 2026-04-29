@@ -36,8 +36,35 @@ namespace WindowWorks.App.UI.Services
             {
                 var win = new ShortcutCaptureWindow();
                 try { if (!string.IsNullOrWhiteSpace(current)) win.TxtCurrent.Text = current; } catch { }
-                // Set owner to the WPF application's main window if available
-                win.Owner = System.Windows.Application.Current?.MainWindow;
+
+                // Prefer to center the capture window over the window that currently has focus
+                try
+                {
+                    // Determine the most appropriate owner: the focused element's window, or the application's MainWindow as fallback
+                    System.Windows.Window? owner = null;
+                    var focused = System.Windows.Input.Keyboard.FocusedElement as System.Windows.DependencyObject;
+                    if (focused != null)
+                    {
+                        owner = System.Windows.Window.GetWindow(focused);
+                    }
+                    if (owner == null)
+                    {
+                        owner = System.Windows.Application.Current?.MainWindow;
+                    }
+
+                    if (owner != null)
+                    {
+                        win.Owner = owner;
+                        win.WindowStartupLocation = System.Windows.WindowStartupLocation.CenterOwner;
+                    }
+                    else
+                    {
+                        // If no owner found, center on screen
+                        win.WindowStartupLocation = System.Windows.WindowStartupLocation.CenterScreen;
+                    }
+                }
+                catch { /* best-effort positioning - ignore errors */ }
+
                 var ok = win.ShowDialog();
                 if (ok == true) return win.Captured;
             }

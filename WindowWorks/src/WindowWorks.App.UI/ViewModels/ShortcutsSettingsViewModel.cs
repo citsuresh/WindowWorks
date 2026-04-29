@@ -12,18 +12,57 @@ namespace WindowWorks.App.UI.ViewModels
         private string? _emergencyReset;
         private string? _opacityGesture;
         private string? _toggleGesture;
-
+        // Exposed for binding to ShortcutPicker.Shortcut
         public string? CommandPalette { get => _commandPalette; set { if (value == _commandPalette) return; _commandPalette = value; OnPropertyChanged(); } }
         public string? EmergencyReset { get => _emergencyReset; set { if (value == _emergencyReset) return; _emergencyReset = value; OnPropertyChanged(); } }
+
+        // Legacy gesture properties remain
         public string? OpacityGesture { get => _opacityGesture; set { if (value == _opacityGesture) return; _opacityGesture = value; OnPropertyChanged(); } }
         public string? ToggleGesture { get => _toggleGesture; set { if (value == _toggleGesture) return; _toggleGesture = value; OnPropertyChanged(); } }
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
+        // Commands to edit shortcuts via the dialog service
+        public System.Windows.Input.ICommand EditCommandPalette { get; }
+        public System.Windows.Input.ICommand EditEmergencyReset { get; }
+
+        private readonly Services.IDialogService? _dialogService;
+
+        public ShortcutsSettingsViewModel() : this(WindowWorks.App.UI.AppServices.GetService<Services.IDialogService>()) { }
+
+        public ShortcutsSettingsViewModel(Services.IDialogService? dialogService)
+        {
+            _dialogService = dialogService;
+            EditCommandPalette = new RelayCommand(_ => ExecuteEditCommandPalette());
+            EditEmergencyReset = new RelayCommand(_ => ExecuteEditEmergencyReset());
+        }
+
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         }
+
+        private void ExecuteEditCommandPalette()
+        {
+            try
+            {
+                var result = _dialogService?.ShowShortcutCapture(CommandPalette);
+                if (!string.IsNullOrWhiteSpace(result)) CommandPalette = result;
+            }
+            catch { }
+        }
+
+        private void ExecuteEditEmergencyReset()
+        {
+            try
+            {
+                var result = _dialogService?.ShowShortcutCapture(EmergencyReset);
+                if (!string.IsNullOrWhiteSpace(result)) EmergencyReset = result;
+            }
+            catch { }
+        }
+
+        // Gesture editing is not exposed via commands in the UI currently.
 
         public void LoadFromDictionary(Dictionary<string, JsonElement>? d)
         {

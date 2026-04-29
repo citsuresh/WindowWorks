@@ -11,10 +11,26 @@ namespace WindowWorks.App.UI
         public string Captured { get; private set; } = string.Empty;
         public bool IsConflict { get; set; }
         public Func<string, bool>? ConflictChecker { get; set; }
+        private System.Windows.Threading.DispatcherTimer? _conflictTimer;
 
         public ShortcutCaptureWindow()
         {
             InitializeComponent();
+            // Timer to auto-hide the conflict warning after a short duration
+            try
+            {
+                _conflictTimer = new System.Windows.Threading.DispatcherTimer(System.TimeSpan.FromSeconds(3), System.Windows.Threading.DispatcherPriority.Normal, (s, e) =>
+                {
+                    try
+                    {
+                        TxtConflict.Visibility = Visibility.Collapsed;
+                        _conflictTimer?.Stop();
+                    }
+                    catch { }
+                }, this.Dispatcher);
+                _conflictTimer.Stop();
+            }
+            catch { }
         }
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -84,7 +100,22 @@ namespace WindowWorks.App.UI
             try { if (ConflictChecker != null && !string.IsNullOrEmpty(Captured)) conflict = ConflictChecker(Captured); } catch { }
             // Also check system-wide conflict for keyboard shortcuts
             try { if (!conflict && !string.IsNullOrEmpty(Captured)) conflict = DetectSystemHotkeyConflict(Captured); } catch { }
-            TxtConflict.Visibility = conflict ? Visibility.Visible : Visibility.Collapsed;
+            if (conflict)
+            {
+                try
+                {
+                    TxtConflict.Text = "The key combination is already being used by an application.";
+                    TxtConflict.Visibility = Visibility.Visible;
+                    // restart auto-hide timer
+                    try { _conflictTimer?.Stop(); _conflictTimer?.Start(); } catch { }
+                }
+                catch { }
+            }
+            else
+            {
+                TxtConflict.Visibility = Visibility.Collapsed;
+                try { _conflictTimer?.Stop(); } catch { }
+            }
             // Only enable OK when there is a captured gesture and it is not conflicting
             BtnOk.IsEnabled = !string.IsNullOrEmpty(Captured) && !conflict;
         }
