@@ -589,17 +589,6 @@ namespace WindowWorks.App.UI
                 catch { }
 
                 var json = JsonSerializer.Serialize(settingsDict);
-                // Emit a debug copy of the settings to help diagnose persistence issues
-                try
-                {
-                    var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WindowWorks");
-                    Directory.CreateDirectory(dir);
-                    var path = Path.Combine(dir, "settings-emitted.json");
-                    File.WriteAllText(path, json);
-                    Debug.WriteLine($"[SettingsWindow] Emitted settings to: {path}");
-                    Debug.WriteLine(json);
-                }
-                catch { }
 
                 // Mark all sections as clean now that we've generated the merged JSON
                 try

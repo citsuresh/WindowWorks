@@ -56,8 +56,8 @@ Files of interest
 - src/WindowWorks.App/* - main app code
 - src/WindowWorks.App.UI/* - WPF UI controls and settings pages
 - src/WindowWorks.App.UI/ViewModels/* - initial ViewModel(s) used for MVVM migration (ShortcutsSettingsViewModel)
-- docs/default_presets.json - seed presets
-- docs/presets.schema.json - JSON schema for presets
+- SeedData/default_presets.json - seed presets
+- SeedData/presets.schema.json - JSON schema for presets
 
 Notes
 

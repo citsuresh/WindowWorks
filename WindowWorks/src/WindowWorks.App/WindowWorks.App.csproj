@@ -16,8 +16,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Use the repository-level docs file so it's not duplicated in the project folder -->
-    <EmbeddedResource Include="..\..\docs\default_presets.json" />
+    <!-- Use the repository-level seed data file so it's not duplicated in the project folder -->
+    <EmbeddedResource Include="..\..\SeedData\default_presets.json">
+      <Link>SeedData\default_presets.json</Link>
+    </EmbeddedResource>
+    <None Include="..\..\SeedData\presets.schema.json">
+      <Link>SeedData\presets.schema.json</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup>

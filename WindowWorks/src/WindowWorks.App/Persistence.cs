@@ -54,20 +54,6 @@ namespace WindowWorks.App
                 var path = Path.Combine(_appFolder, "settings.json");
                 var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
                 File.WriteAllText(path, json);
-                // Also write a debug copy to LocalApplicationData to aid diagnostics when troubleshooting persistence
-                try
-                {
-                    var localDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WindowWorks");
-                    Directory.CreateDirectory(localDir);
-                    var debugPath = Path.Combine(localDir, "settings-saved-debug.json");
-                    File.WriteAllText(debugPath, json);
-                    System.Diagnostics.Debug.WriteLine($"[Persistence] Saved settings to: {path}");
-                    System.Diagnostics.Debug.WriteLine($"[Persistence] Wrote debug copy to: {debugPath}");
-                }
-                catch (Exception dbgEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[Persistence] Failed to write debug copy: {dbgEx}");
-                }
             }
             catch (Exception ex)
             {
@@ -79,7 +65,7 @@ namespace WindowWorks.App
         public IEnumerable<Models.Preset>? LoadEmbeddedDefaultPresets()
         {
             var asm = Assembly.GetExecutingAssembly();
-            var resourceName = "docs.default_presets.json";
+            var resourceName = "SeedData.default_presets.json";
             // Try common manifest name patterns
             foreach (var rn in asm.GetManifestResourceNames())
             {

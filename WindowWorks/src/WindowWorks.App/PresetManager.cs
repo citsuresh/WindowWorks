@@ -25,8 +25,22 @@ namespace WindowWorks.App
         {
             try
             {
+                // Prefer user-saved presets from %APPDATA%\WindowWorks\presets.json
+                var saved = _persistence.LoadPresetsFromAppFolder();
+                if (saved != null && saved.Any())
+                {
+                    LoadedPresets = saved.ToList();
+                    return;
+                }
+
+                // Fall back to embedded seed defaults on first run / missing file
                 var defaults = _persistence.LoadEmbeddedDefaultPresets();
-                if (defaults != null && defaults.Any()) LoadedPresets = defaults.ToList();
+                if (defaults != null && defaults.Any())
+                {
+                    LoadedPresets = defaults.ToList();
+                    // Persist the seeded defaults so presets.json exists going forward
+                    try { _persistence.SavePresets(LoadedPresets); } catch { }
+                }
             }
             catch { /* swallow for now; persistence will log in future */ }
         }
