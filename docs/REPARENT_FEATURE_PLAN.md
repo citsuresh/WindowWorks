@@ -1148,44 +1148,15 @@ own risk," so users opt in once rather than being interrupted every time.
 ## 13. Open questions for later
 
 **Reviewed and reorganized — most items previously listed here were already
-decided.** Of the original 14 entries: **5 are genuinely open** (no decision
-made yet, listed below), **8 were resolved** during design (kept in a
+decided.** Of the original 14 entries: **4 are genuinely open** (no decision
+made yet, listed below), **9 were resolved** during design (kept in a
 separate reference list for traceability), and **1 was a testing reminder
 mislabeled as an open question** (a cross-reference to an already-required
 Phase 1 test case, not a decision at all — also moved to the reference list
-below, kept distinct from the 8 actual resolved decisions).
+below, kept distinct from the actual resolved decisions).
 
 ### Genuinely open (need a decision before/at the relevant phase)
 
-- **Host frame window technology choice — needed before Phase 0 coding
-  starts.** Should the Phase 0/1 host frame be a WPF `Window` (consistent
-  with `WindowWorks.App.UI`'s existing WPF surfaces, e.g. `HighlightOverlay`,
-  `SettingsWindow`), a raw native HWND created directly via Win32 calls
-  (more control over child-window semantics, less WPF-interop overhead for
-  something that's mostly hosting a foreign HWND anyway), or something else
-  entirely? This affects how the picker overlay, host frame, and control
-  strip are actually implemented and should be settled first.
-  - **New consideration from reviewing the real PowerToys source (§8):**
-    the proven activation/focus mechanism requires intercepting
-    `WM_MOUSEACTIVATE` (to return `MA_NOACTIVATE`) and `WM_ACTIVATE` on the
-    host frame's own window procedure, calling `SetForegroundWindow` on the
-    embedded target from both. **If the host frame is a WPF `Window`, this
-    is not directly exposed** — WPF's `Window` class does not surface raw
-    `WM_MOUSEACTIVATE`/`WM_ACTIVATE` messages through its normal event
-    model; it requires hooking the window's message loop directly via
-    `HwndSource.FromHwnd(...).AddHook(...)` and handling those specific
-    `WM_*` constants manually (the WPF equivalent of overriding `WndProc`).
-    This is a solvable, well-known pattern (`HwndSource.AddHook` is
-    standard for exactly this kind of low-level interop), but it means
-    "plain WPF `Window`, no Win32 interop" is **not** actually an option
-    for a correct implementation — some `HwndSource`/`WndProc`-hook-level
-    interop is required regardless of which technology is chosen for the
-    host frame's visual chrome. Factor this into the decision: a raw HWND
-    host frame gets this for free (it's just handling `WM_MOUSEACTIVATE`
-    directly in its own `WndProc`), while a WPF host frame needs the
-    `HwndSource.AddHook` bridge — extra code, but still fully viable, and
-    keeps the rest of the host frame (control strip, XAML chrome) in WPF
-    for consistency with the rest of the app.
 - **Inline error/status surface for Phase 1 — needed before implementing
   the elevation-check and failure-handling paths.** The plan specifies
   several places needing a "clear inline message, not a `MessageBox`"
@@ -1217,6 +1188,20 @@ below, kept distinct from the 8 actual resolved decisions).
 
 ### Already resolved during design (kept for traceability only — not open)
 
+- ~~Host frame window technology choice~~ — resolved: **WPF `Window`, with
+  a `HwndSource.AddHook` bridge for the low-level `WM_MOUSEACTIVATE`/
+  `WM_ACTIVATE`/`WM_DPICHANGED` interop (§8, §12).** Reasoning: the rest of
+  `WindowWorks.App.UI` is already WPF (`HighlightOverlay`, `SettingsWindow`),
+  so a WPF host frame keeps the control strip, drag/resize chrome, and
+  Settings/tracking-list data binding consistent with the rest of the app
+  and avoids re-implementing all of that in raw GDI/Win32. The interop cost
+  is small and well-precedented — `HwndSource.FromHwnd(hwnd).AddHook(...)`
+  is a standard pattern for exactly this kind of message interception, on
+  the order of a few dozen lines, not a per-feature tax. A raw native HWND
+  host frame's only real advantage (getting `WM_MOUSEACTIVATE` "for free"
+  in its own `WndProc`) does not offset having to hand-build the rest of
+  the host frame's chrome outside WPF. This was blocking Phase 0 coding
+  start; it is no longer a blocker.
 - ~~Exact host-frame chrome design~~ — resolved by §6.7 (auto-hiding overlay
   control strip, not a persistent native titlebar).
 - ~~Whether the reparented host frame should be user-resizable~~ — resolved:
