@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Code knowledge graph viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --surface: #f7f6f2; --border: #e2e0d8;
+    --text: #1a1a18; --text-secondary: #6b6a63; --text-muted: #a3a196;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a; --surface: #262623; --border: #3a3a37;
+      --text: #eceae2; --text-secondary: #b0aea3; --text-muted: #7a7972;
+    }
+  }
+  html[data-theme="light"] {
+    --bg: #ffffff; --surface: #f7f6f2; --border: #e2e0d8;
+    --text: #1a1a18; --text-secondary: #6b6a63; --text-muted: #a3a196;
+  }
+  html[data-theme="dark"] {
+    --bg: #1c1c1a; --surface: #262623; --border: #3a3a37;
+    --text: #eceae2; --text-secondary: #b0aea3; --text-muted: #7a7972;
+  }
+  body {
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--text);
+    margin: 0; padding: 20px;
+  }
+  h1 { font-size: 18px; font-weight: 500; margin: 0 0 4px; }
+  .sub { font-size: 13px; color: var(--text-secondary); margin: 0 0 16px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  input, select, button {
+    font-size: 13px; padding: 6px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  input[type=text] { flex: 1; min-width: 200px; }
+  button { cursor: pointer; }
+  button:hover { background: var(--surface); }
+  .crumb { display: flex; gap: 4px; align-items: center; font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; }
+  .crumb span.active { color: var(--text); font-weight: 500; }
+  .crumb button { border: none; background: none; padding: 2px 4px; color: var(--text-secondary); text-decoration: underline; cursor: pointer; }
+  .legend { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; }
+  .legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .stage {
+    position: relative; border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; background: var(--surface);
+  }
+  svg { display: block; width: 100%; height: 520px; }
+  #viewerRoot:fullscreen { background: var(--bg); display: flex; flex-direction: column; padding: 16px; box-sizing: border-box; }
+  #viewerRoot:fullscreen .stage { flex: 1; min-height: 0; }
+  #viewerRoot:fullscreen .stage svg { height: 100%; }
+  #viewerRoot:-webkit-full-screen { background: var(--bg); display: flex; flex-direction: column; padding: 16px; box-sizing: border-box; }
+  #viewerRoot:-webkit-full-screen .stage { flex: 1; min-height: 0; }
+  #viewerRoot:-webkit-full-screen .stage svg { height: 100%; }
+  #panel {
+    display: none; position: absolute; top: 0; right: 0; width: 280px; height: 100%;
+    background: var(--bg); border-left: 1px solid var(--border); padding: 14px;
+    overflow-y: auto; font-size: 12px; box-sizing: border-box;
+  }
+  #panel .member-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  #panel .kind-tag { font-size: 10px; color: var(--text-muted); width: 60px; flex-shrink:0; }
+  #panel .access-symbol { font-family: var(--font-mono, monospace); font-size: 13px; width: 14px; text-align: center; flex-shrink: 0; color: var(--text-muted); }
+  .hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  #loadState { padding: 40px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+  #loadState button { margin-top: 12px; }
+  .file-row { display:flex; gap:8px; align-items:center; justify-content:center; margin-top: 10px; }
+  #dropzone {
+    margin: 16px auto 0; max-width: 420px; padding: 28px 16px;
+    border: 2px dashed var(--border); border-radius: 10px;
+    color: var(--text-secondary); font-size: 13px; text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  #dropzone.dragover { border-color: #378ADD; background: #378ADD11; color: var(--text); }
+  #dropStatus { margin-top: 8px; font-size: 12px; }
+  #dropStatus .ok { color: #1D9E75; }
+  #dropStatus .missing { color: var(--text-muted); }
+  #tooltip {
+    position: fixed; z-index: 1000; pointer-events: none;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+    display: none; max-width: 260px;
+  }
+  #tooltip .tt-project { font-weight: 600; }
+  #tooltip .tt-name { color: var(--text); margin-top: 2px; }
+  #tooltip .tt-kind { color: var(--text-muted); font-size: 11px; }
+  #tooltip .tt-hint { color: var(--text-secondary); font-size: 11px; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Code knowledge graph</h1>
+<p class="sub" id="subtitle">Loading full-graph.json and project-dependencies.json from the same folder...</p>
+
+<div id="loadState">
+  <div>Looking for <code>full-graph.json</code> and <code>project-dependencies.json</code> next to this file...</div>
+  <div class="file-row" id="fallbackPicker" style="display:none;">
+    <span>Browser blocked local file access. Select the files manually:</span>
+  </div>
+  <div class="file-row" id="fallbackInputs" style="display:none;">
+    <input type="file" id="graphFile" accept=".json">
+    <input type="file" id="depsFile" accept=".json">
+  </div>
+  <div id="dropzone" style="display:none;">
+    Or drag and drop <code>full-graph.json</code> and <code>project-dependencies.json</code> here (together or one at a time)
+    <div id="dropStatus"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <div id="viewerRoot">
+    <div class="crumb" id="crumb"></div>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="Search a type or member...">
+      <select id="projectJump"><option value="">Jump to project...</option></select>
+      <button id="resetView" title="Re-center and reset zoom">Reset view</button>
+      <button id="fullscreenToggle" title="Toggle full screen">⛶ Full screen</button>
+      <button id="themeToggle" title="Switch light/dark">🌙</button>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="toolbar" style="font-size:12px;">
+      <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="sizeByMembers"> Scale by size</label>
+      <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="showBadges"> Show abstract/sealed/static badges</label>
+      <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="showArrows" checked> Show arrows</label>
+      <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="useIcons"> Use icon shapes</label>
+    </div>
+    <div class="stage" id="stage">
+      <svg id="graph"></svg>
+      <div id="panel"></div>
+    </div>
+  </div>
+  <div id="tooltip"></div>
+  <p class="hint">Drag nodes to rearrange, scroll/pinch to zoom. Arrows point from the dependent type to the type it depends on. Shape = kind (&#9679; class, &#9670; interface, &#9632; enum). Line thickness = number of references. Click a project to drill into its types; click a type to see its members.</p>
+  <p class="hint" style="margin-top:4px;">
+    <svg width="70" height="14" style="vertical-align:middle; color:#8888;"><line x1="2" y1="7" x2="60" y2="7" stroke="#8888" stroke-width="2" marker-end="url(#arrow-open-strong)"/></svg> extends
+    &nbsp;&nbsp;
+    <svg width="70" height="14" style="vertical-align:middle; color:#8888;"><line x1="2" y1="7" x2="60" y2="7" stroke="#8888" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow-open-strong)"/></svg> implements
+    &nbsp;&nbsp;
+    <svg width="70" height="14" style="vertical-align:middle; color:#8888;"><line x1="2" y1="7" x2="60" y2="7" stroke="#8888" stroke-width="1.5" marker-end="url(#arrow-open)"/></svg> calls / uses
+  </p>
+</div>
+
+<script>
+let fullGraph = null, deps = null;
+let view = { level: 'projects', project: null };
+
+function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem('graph-viewer-theme'); } catch (e) { /* file:// may block storage */ }
+  const systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (systemDark ? 'dark' : 'light'));
+  document.getElementById('themeToggle').onclick = () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem('graph-viewer-theme', next); } catch (e) { /* ignore */ }
+  };
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeToggle').textContent = theme === 'dark' ? '☀️' : '🌙';
+}
+function rerenderCurrentView() {
+  if (!fullGraph || !deps) return;
+  if (view.level === 'projects') renderProjectsView();
+  else renderProjectTypesView(view.project);
+}
+
+function initFullscreen() {
+  const btn = document.getElementById('fullscreenToggle');
+  const stage = document.getElementById('viewerRoot');
+  btn.onclick = () => {
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!isFs) {
+      (stage.requestFullscreen || stage.webkitRequestFullscreen)?.call(stage);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    }
+  };
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => {
+    document.addEventListener(evt, () => {
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+      btn.textContent = isFs ? '⛶ Exit full screen' : '⛶ Full screen';
+      // let the browser finish resizing the SVG box before re-laying-out the graph
+      setTimeout(rerenderCurrentView, 60);
+    });
+  });
+}
+initTheme();
+initFullscreen();
+
+const COLOR_RAMP = ['#378ADD','#1D9E75','#D85A30','#D4537E','#BA7517','#7F77DD','#639922','#888780'];
+const projectColor = {};
+function colorFor(project) {
+  if (!(project in projectColor)) {
+    projectColor[project] = COLOR_RAMP[Object.keys(projectColor).length % COLOR_RAMP.length];
+  }
+  return projectColor[project];
+}
+
+async function tryAutoLoad() {
+  try {
+    const [g, d] = await Promise.all([
+      fetch('full-graph.json').then(r => { if (!r.ok) throw new Error(); return r.json(); }),
+      fetch('project-dependencies.json').then(r => { if (!r.ok) throw new Error(); return r.json(); })
+    ]);
+    fullGraph = g; deps = d;
+    startApp();
+  } catch (e) {
+    document.getElementById('fallbackPicker').style.display = 'flex';
+    document.getElementById('fallbackInputs').style.display = 'flex';
+    document.getElementById('dropzone').style.display = 'block';
+    updateDropStatus();
+  }
+}
+
+function updateDropStatus() {
+  const el = document.getElementById('dropStatus');
+  el.innerHTML =
+    `<span class="${fullGraph ? 'ok' : 'missing'}">${fullGraph ? '\u2713' : '\u2013'} full-graph.json</span>` +
+    '&nbsp;&nbsp;' +
+    `<span class="${deps ? 'ok' : 'missing'}">${deps ? '\u2713' : '\u2013'} project-dependencies.json</span>`;
+}
+
+function handleDroppedFile(file) {
+  file.text().then(t => {
+    let parsed;
+    try { parsed = JSON.parse(t); } catch (e) {
+      alert(`${file.name} isn't valid JSON.`); return;
+    }
+    if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+      fullGraph = parsed;
+    } else if (Array.isArray(parsed.projects)) {
+      deps = parsed;
+    } else if (file.name.includes('full-graph')) {
+      fullGraph = parsed;
+    } else if (file.name.includes('project-dependencies')) {
+      deps = parsed;
+    } else {
+      alert(`Couldn't tell whether ${file.name} is the graph or the project-dependencies file.`);
+      return;
+    }
+    updateDropStatus();
+    if (fullGraph && deps) startApp();
+  });
+}
+
+function wireDropzone() {
+  const zone = document.getElementById('dropzone');
+  ['dragenter', 'dragover'].forEach(evt =>
+    zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.add('dragover'); }));
+  ['dragleave', 'drop'].forEach(evt =>
+    zone.addEventListener(evt, (e) => { e.preventDefault(); zone.classList.remove('dragover'); }));
+  zone.addEventListener('drop', (e) => {
+    const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.json'));
+    if (files.length === 0) { alert('Drop .json files only.'); return; }
+    files.forEach(handleDroppedFile);
+  });
+}
+
+function wireFilePickers() {
+  const gInput = document.getElementById('graphFile');
+  const dInput = document.getElementById('depsFile');
+  function checkBoth() {
+    if (fullGraph && deps) startApp();
+  }
+  gInput.addEventListener('change', () => {
+    const f = gInput.files[0]; if (!f) return;
+    f.text().then(t => { fullGraph = JSON.parse(t); checkBoth(); });
+  });
+  dInput.addEventListener('change', () => {
+    const f = dInput.files[0]; if (!f) return;
+    f.text().then(t => { deps = JSON.parse(t); checkBoth(); });
+  });
+}
+
+function startApp() {
+  document.getElementById('loadState').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('subtitle').textContent =
+    `${fullGraph.nodes.length.toLocaleString()} symbols, ${fullGraph.edges.length.toLocaleString()} references across ${deps.projects.length} project(s)`;
+  renderProjectsView();
+}
+
+function renderCrumb() {
+  const crumb = document.getElementById('crumb');
+  crumb.innerHTML = '';
+  const allBtn = document.createElement('button');
+  allBtn.textContent = 'All projects';
+  allBtn.onclick = () => renderProjectsView();
+  crumb.appendChild(allBtn);
+  if (view.project) {
+    crumb.insertAdjacentHTML('beforeend', ' <span>&rsaquo;</span> ');
+    const span = document.createElement('span');
+    span.className = 'active';
+    span.textContent = view.project.replace(/^.*\./, '');
+    crumb.appendChild(span);
+  }
+}
+
+function renderLegend(projects) {
+  const legend = document.getElementById('legend');
+  legend.innerHTML = '';
+  projects.forEach(p => {
+    const el = document.createElement('span');
+    const c = colorFor(p);
+    el.style.background = c + '22'; el.style.color = c;
+    el.innerHTML = `<span class="dot" style="background:${c}"></span>${p.replace(/^.*?\./,'')}`;
+    legend.appendChild(el);
+  });
+}
+
+function clearStage() {
+  d3.select('#graph').selectAll('*').remove();
+  document.getElementById('panel').style.display = 'none';
+}
+
+// ---- Level 0: project-to-project dependency graph ----
+function renderProjectsView() {
+  view = { level: 'projects', project: null };
+  renderCrumb();
+  clearStage();
+  const names = deps.projects.map(p => p.name);
+  renderLegend(names);
+  populateProjectJump(names);
+
+  const filesByProject = new Map();
+  fullGraph.nodes.forEach(n => {
+    if (!n.filePath) return;
+    if (!filesByProject.has(n.project)) filesByProject.set(n.project, new Set());
+    filesByProject.get(n.project).add(n.filePath);
+  });
+
+  const nodes = deps.projects.map(p => ({
+    id: p.name, name: p.name.replace(/^.*?\./,''), project: p.name,
+    sizeMetric: filesByProject.has(p.name) ? filesByProject.get(p.name).size : 0
+  }));
+  const links = [];
+  deps.projects.forEach(p => (p.references||[]).forEach(r => links.push({ source: p.name, target: r })));
+
+  runForceGraph(nodes, links, (d) => renderProjectTypesView(d.id), (d) => `${d.name}\n(click to view internal types)`);
+}
+
+function populateProjectJump(names) {
+  const sel = document.getElementById('projectJump');
+  sel.innerHTML = '<option value="">Jump to project...</option>';
+  names.forEach(n => {
+    const o = document.createElement('option');
+    o.value = n; o.textContent = n.replace(/^.*?\./, '');
+    sel.appendChild(o);
+  });
+  sel.onchange = () => { if (sel.value) renderProjectTypesView(sel.value); };
+}
+
+// ---- Level 1: type-level graph within one project ----
+function renderProjectTypesView(projectName) {
+  view = { level: 'types', project: projectName };
+  renderCrumb();
+  clearStage();
+  populateProjectJump(deps.projects.map(p => p.name));
+  document.getElementById('projectJump').value = projectName;
+
+  const typeKinds = new Set(['class','interface','enum']);
+  const nodeById = new Map(fullGraph.nodes.map(n => [n.id, n]));
+  const nodeIds = new Set(nodeById.keys());
+
+  function owningType(id) {
+    const n = nodeById.get(id);
+    if (!n) return null;
+    if (typeKinds.has(n.kind)) return n.id;
+    return n.containingType || null;
+  }
+
+  const typeNodes = fullGraph.nodes.filter(n => typeKinds.has(n.kind) && n.project === projectName);
+  renderLegend([projectName]);
+
+  const edgeMap = new Map();
+  fullGraph.edges.forEach(e => {
+    if (!nodeIds.has(e.sourceId) || !nodeIds.has(e.targetId)) return;
+    const st = owningType(e.sourceId), tt = owningType(e.targetId);
+    if (!st || !tt || st === tt) return;
+    const sN = nodeById.get(st), tN = nodeById.get(tt);
+    if (sN.project !== projectName && tN.project !== projectName) return;
+    const key = st + '|' + tt;
+    if (!edgeMap.has(key)) edgeMap.set(key, { count: 0, types: new Set() });
+    const rec = edgeMap.get(key);
+    rec.count += 1;
+    rec.types.add(e.type);
+  });
+
+  const nodeSet = new Map(typeNodes.map(n => [n.id, n]));
+  edgeMap.forEach((rec, key) => {
+    const [s, t] = key.split('|');
+    [s, t].forEach(id => { if (!nodeSet.has(id) && nodeById.has(id)) nodeSet.set(id, nodeById.get(id)); });
+  });
+
+  const nodes = Array.from(nodeSet.values()).map(n => ({
+    id: n.id, name: n.name, project: n.project, kind: n.kind,
+    isAbstract: !!n.isAbstract, isStatic: !!n.isStatic, isSealed: !!n.isSealed,
+    sizeMetric: fullGraph.nodes.filter(m => m.containingType === n.id).length
+  }));
+  const links = Array.from(edgeMap.entries()).map(([key, rec]) => {
+    const [s, t] = key.split('|');
+    return { source: s, target: t, count: rec.count, types: Array.from(rec.types) };
+  });
+
+  runForceGraph(nodes, links,
+    (d) => showMemberPanel(d.id),
+    (d) => `${d.name}\n(click to see members)`,
+    projectName);
+}
+
+function accessSymbol(acc) {
+  const map = { public: '+', private: '-', protected: '#', internal: '~' };
+  return map[acc] || (acc ? acc[0].toUpperCase() : '?');
+}
+
+function showMemberPanel(typeId) {
+  const membersByType = fullGraph.membersByType || buildMembersByType();
+  const node = fullGraph.nodes.find(n => n.id === typeId);
+  const members = (fullGraph.nodes || []).filter(n => n.containingType === typeId);
+  const panel = document.getElementById('panel');
+  panel.style.display = 'block';
+  panel.innerHTML = `
+    <div style="font-weight:600; font-size:14px; margin-bottom:2px;">${node ? node.name : typeId}</div>
+    <div style="color:var(--text-secondary); margin-bottom:10px;">${node ? node.project.replace(/^.*?\./,'') : ''} &middot; ${node ? node.kind : ''}</div>
+    <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">${members.length} member(s) &middot; + public &middot; - private &middot; # protected &middot; ~ internal</div>
+    ${members.map(m => `<div class="member-row">
+      <span class="access-symbol" title="${m.accessibility || 'unknown'}">${accessSymbol(m.accessibility)}</span>
+      <span class="kind-tag">${m.kind}</span>
+      <span>${m.name}${m.isStatic ? ' <span style="color:var(--text-muted); font-size:10px;">static</span>' : ''}</span>
+    </div>`).join('')}
+  `;
+}
+function buildMembersByType() { return {}; }
+
+// ---- Shared force-directed renderer ----
+function runForceGraph(nodes, links, onClick, tooltipFn, highlightProject) {
+  const svg = d3.select('#graph');
+  svg.selectAll('*').remove();
+  const box = svg.node().getBoundingClientRect();
+  const width = box.width || 680, height = 520;
+  svg.attr('viewBox', `0 0 ${width} ${height}`);
+
+  const zoomLayer = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', (event) => {
+    zoomLayer.attr('transform', event.transform);
+  });
+  svg.call(zoom);
+  document.getElementById('resetView').onclick = () => {
+    svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity);
+  };
+
+  // adjacency map for hover-highlighting
+  const neighborsOf = new Map(nodes.map(n => [n.id, new Set()]));
+  links.forEach(l => {
+    neighborsOf.get(l.source)?.add(l.target);
+    neighborsOf.get(l.target)?.add(l.source);
+  });
+
+  // marker defs for arrowheads (solid = association/dependency, hollow = inheritance-style)
+  let defs = svg.select('defs');
+  if (defs.empty()) defs = svg.append('defs');
+  defs.html(`
+    <marker id="arrow-open-strong" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path d="M1,1 L11,6 L1,11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+    </marker>
+    <marker id="arrow-open" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+      <path d="M1,1 L9,5 L1,9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+    </marker>
+  `);
+
+  const sizeByMembers = document.getElementById('sizeByMembers').checked;
+  const showBadges = document.getElementById('showBadges').checked;
+  function radiusFor(d) {
+    if (!sizeByMembers || typeof d.sizeMetric !== 'number') return 7;
+    return Math.max(6, Math.min(6 + Math.sqrt(d.sizeMetric) * 2, 26));
+  }
+
+  // UML-ish styling: extends = solid + bold open chevron (Generalization),
+  // implements = dashed + bold open chevron (Realization),
+  // everything else (calls/uses/overrides) = solid + thin open chevron (Association/Dependency)
+  function relationStyle(d) {
+    const types = d.types || [];
+    if (types.includes('extends')) return { dash: null, marker: 'arrow-open-strong' };
+    if (types.includes('implements')) return { dash: '5,3', marker: 'arrow-open-strong' };
+    return { dash: null, marker: 'arrow-open' };
+  }
+
+  const linkSel = zoomLayer.append('g').selectAll('line')
+    .data(links).join('line')
+    .attr('stroke', '#8888')
+    .attr('stroke-width', d => Math.min(1 + Math.sqrt(d.count || 1), 6))
+    .attr('stroke-dasharray', d => relationStyle(d).dash)
+    .attr('marker-end', d => document.getElementById('showArrows').checked ? `url(#${relationStyle(d).marker})` : null)
+    .style('color', '#8888');
+
+  function symbolPathFor(d) {
+    const r = radiusFor(d);
+    const area = Math.PI * r * r;
+    let type = d3.symbolCircle;
+    let scale = 1;
+    if (d.kind === 'interface') { type = d3.symbolDiamond; scale = 1.5; }
+    else if (d.kind === 'enum') { type = d3.symbolSquare; scale = 1.15; }
+    return d3.symbol().type(type).size(area * scale)();
+  }
+
+  const useIcons = document.getElementById('useIcons').checked;
+
+  function packageIconMarkup(d) {
+    const r = radiusFor(d);
+    const color = colorFor(d.project);
+    const w = r * 2.6, h = r * 1.9;
+    const tabW = w * 0.42, tabH = h * 0.24;
+    const bodyY = -h / 2 + tabH;
+    const bodyH = h - tabH;
+    return `<rect x="${-w/2}" y="${-h/2}" width="${tabW}" height="${tabH}" rx="1.5" fill="${color}" stroke="#fff" stroke-width="1"/>` +
+           `<rect x="${-w/2}" y="${bodyY}" width="${w}" height="${bodyH}" rx="2" fill="${color}" stroke="#fff" stroke-width="1.4"/>`;
+  }
+
+  function iconMarkupFor(d) {
+    const r = radiusFor(d);
+    const color = colorFor(d.project);
+    const dash = d.isAbstract ? 'stroke-dasharray="3,2.5"' : '';
+    const w = r * 2, h = r * 1.7;
+    let shape;
+    if (d.kind === 'interface') {
+      shape = `<circle cx="0" cy="0" r="${r}" fill="none" stroke="${color}" stroke-width="2" ${dash} style="pointer-events:all;"/>`;
+    } else if (d.kind === 'enum') {
+      const rowY = [-h/2 + h*0.22, 0, h/2 - h*0.22];
+      let rows = '';
+      rowY.forEach(y => {
+        rows += `<circle cx="${-w/2 + w*0.16}" cy="${y}" r="${Math.max(1.2, r*0.09)}" fill="${color}"/>`;
+        rows += `<line x1="${-w/2 + w*0.3}" y1="${y}" x2="${w/2 - w*0.12}" y2="${y}" stroke="${color}" stroke-width="1.4"/>`;
+      });
+      shape = `<rect x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" rx="2" fill="var(--surface-2)" stroke="${color}" stroke-width="1.4" ${dash}/>${rows}`;
+    } else {
+      shape = `<rect x="${-w/2}" y="${-h/2}" width="${w}" height="${h}" rx="2" fill="var(--surface-2)" stroke="${color}" stroke-width="1.4" ${dash}/>` +
+              `<rect x="${-w/2}" y="${-h/2}" width="${w}" height="${h*0.4}" rx="2" fill="${color}"/>` +
+              `<rect x="${-w/2}" y="${-h/2 + h*0.32}" width="${w}" height="${h*0.1}" fill="${color}"/>`;
+    }
+    if (d.isStatic) shape += `<line x1="${-w*0.35}" y1="${h/2 + 4}" x2="${w*0.35}" y2="${h/2 + 4}" stroke="${color}" stroke-width="1.8"/>`;
+    if (d.isSealed) {
+      const lx = w/2 - 2, ly = h/2 - 2;
+      shape += `<circle cx="${lx}" cy="${ly}" r="6" fill="${color}"/>` +
+               `<rect x="${lx-2.5}" y="${ly-1.5}" width="5" height="3.5" rx="0.8" fill="#fff"/>` +
+               `<path d="M${lx-1.5},${ly-1.5} v-1.4 a1.5,1.5 0 0 1 3,0 v1.4" fill="none" stroke="#fff" stroke-width="0.9"/>`;
+    }
+    return shape;
+  }
+
+  const nodeSel = zoomLayer.append('g').selectAll('g.node-shape')
+    .data(nodes).join('g')
+    .attr('class', 'node-shape')
+    .html(d => {
+      if (!useIcons) return `<path d="${symbolPathFor(d)}" fill="${colorFor(d.project)}" stroke="#fff" stroke-width="1.2"/>`;
+      return d.kind ? iconMarkupFor(d) : packageIconMarkup(d);
+    })
+    .style('cursor', 'pointer')
+    .style('opacity', d => !highlightProject || d.project === highlightProject ? 1 : 0.35);
+
+  const badgeSel = zoomLayer.append('g').selectAll('text.badge')
+    .data((showBadges && !useIcons) ? nodes.filter(d => d.isAbstract || d.isStatic || d.isSealed) : [])
+    .join('text')
+    .attr('class', 'badge')
+    .text(d => d.isAbstract ? 'A' : d.isSealed ? '\u{1F512}' : 'S')
+    .attr('font-size', d => Math.max(8, Math.min(radiusFor(d), 13)))
+    .attr('font-weight', 700)
+    .attr('fill', '#fff')
+    .attr('text-anchor', 'middle')
+    .attr('dy', '0.32em')
+    .style('pointer-events', 'none');
+
+  const labelSel = zoomLayer.append('g').selectAll('text.label')
+    .data(nodes).join('text')
+    .attr('class', 'label')
+    .text(d => d.name).attr('font-size', 10).attr('fill', 'var(--text-secondary)')
+    .attr('text-anchor', 'middle').attr('dy', d => -(radiusFor(d) + 5)).style('pointer-events', 'none');
+
+  document.getElementById('sizeByMembers').onchange = () => rerenderCurrentView();
+  document.getElementById('showArrows').onchange = () => rerenderCurrentView();
+  document.getElementById('useIcons').onchange = () => rerenderCurrentView();
+  document.getElementById('showBadges').onchange = () => rerenderCurrentView();
+
+  const tooltip = document.getElementById('tooltip');
+  function showNodeTooltip(event, d) {
+    const hint = tooltipFn(d).split('\n')[1] || '';
+    const mods = [d.isAbstract ? 'abstract' : null, d.isSealed ? 'sealed' : null, d.isStatic ? 'static' : null].filter(Boolean);
+    tooltip.innerHTML = `
+      <div class="tt-project" style="color:${colorFor(d.project)}">${d.project}</div>
+      <div class="tt-name">${d.name}${d.kind ? ' <span class="tt-kind">&middot; ' + d.kind + '</span>' : ''}</div>
+      ${mods.length ? `<div class="tt-kind">${mods.join(', ')}</div>` : ''}
+      ${typeof d.sizeMetric === 'number' ? `<div class="tt-kind">${d.sizeMetric} ${d.kind ? 'member' : 'file'}${d.sizeMetric===1?'':'s'}</div>` : ''}
+      ${hint ? `<div class="tt-hint">${hint.replace(/[()]/g,'')}</div>` : ''}
+    `;
+    tooltip.style.display = 'block';
+    moveTooltip(event);
+  }
+  function moveTooltip(event) {
+    tooltip.style.left = (event.clientX + 14) + 'px';
+    tooltip.style.top = (event.clientY + 14) + 'px';
+  }
+  function hideTooltip() { tooltip.style.display = 'none'; }
+
+  function showLinkTooltip(event, d) {
+    tooltip.innerHTML = `<div class="tt-name">${d.count} reference${d.count===1?'':'s'}${d.types ? ' <span class="tt-kind">(' + d.types.join(', ') + ')</span>' : ''}</div>`;
+    tooltip.style.display = 'block';
+    moveTooltip(event);
+  }
+
+  linkSel
+    .on('mouseenter', (event, d) => showLinkTooltip(event, d))
+    .on('mousemove', moveTooltip)
+    .on('mouseleave', hideTooltip);
+
+  function applyHover(hoveredId) {
+    if (!hoveredId) {
+      nodeSel.style('opacity', d => !highlightProject || d.project === highlightProject ? 1 : 0.35);
+      labelSel.style('opacity', 1);
+      badgeSel.style('opacity', 1);
+      linkSel.style('opacity', 0.5).attr('stroke', '#8888').style('color', '#8888');
+      return;
+    }
+    const neighbors = neighborsOf.get(hoveredId) || new Set();
+    nodeSel.style('opacity', d => d.id === hoveredId || neighbors.has(d.id) ? 1 : 0.15);
+    labelSel.style('opacity', d => d.id === hoveredId || neighbors.has(d.id) ? 1 : 0.15);
+    badgeSel.style('opacity', d => d.id === hoveredId || neighbors.has(d.id) ? 1 : 0.15);
+    linkSel
+      .style('opacity', d => (d.source.id === hoveredId || d.target.id === hoveredId) ? 0.9 : 0.06)
+      .attr('stroke', d => (d.source.id === hoveredId || d.target.id === hoveredId) ? '#378ADD' : '#8888')
+      .style('color', d => (d.source.id === hoveredId || d.target.id === hoveredId) ? '#378ADD' : '#8888');
+  }
+
+  nodeSel
+    .on('mouseenter', (event, d) => { applyHover(d.id); showNodeTooltip(event, d); })
+    .on('mousemove', moveTooltip)
+    .on('mouseleave', () => { applyHover(null); hideTooltip(); })
+    .on('click', (event, d) => onClick(d));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(65).strength(0.3))
+    .force('charge', d3.forceManyBody().strength(-130))
+    .force('center', d3.forceCenter(width/2, height/2))
+    .force('collide', d3.forceCollide().radius(d => radiusFor(d) + 6))
+    .on('tick', () => {
+      linkSel
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .each(function(d) {
+          const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
+          const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          const r = radiusFor(d.target) + 2; // stop just outside the target circle
+          const x2 = d.target.x - (dx / dist) * r;
+          const y2 = d.target.y - (dy / dist) * r;
+          d3.select(this).attr('x2', x2).attr('y2', y2);
+        });
+      nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+      badgeSel.attr('x', d => d.x).attr('y', d => d.y);
+      labelSel.attr('x', d => d.x).attr('y', d => d.y);
+    });
+
+  nodeSel.call(d3.drag()
+    .on('start', (e,d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (e,d) => { d.fx=e.x; d.fy=e.y; })
+    .on('end', (e,d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+  document.getElementById('search').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    nodeSel.style('opacity', d => !q || d.name.toLowerCase().includes(q) ? 1 : 0.12);
+    labelSel.style('opacity', d => !q || d.name.toLowerCase().includes(q) ? 1 : 0.12);
+  };
+}
+
+wireFilePickers();
+wireDropzone();
+tryAutoLoad();
+</script>
+</body>
+</html>

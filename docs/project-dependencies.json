@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "generatedAt": "2026-09-09T11:16:54.3748903Z",
+  "solutionPath": "C:\\MyFiles\\Git\\WindowWorks\\WindowWorks\\WindowWorks.sln",
+  "commitSha": "951dde3ba98c5cbf5ebf96686ffcb71600ddde31",
+  "projects": [
+    {
+      "name": "WindowWorks.App",
+      "path": "C:\\MyFiles\\Git\\WindowWorks\\WindowWorks\\src\\WindowWorks.App\\WindowWorks.App.csproj",
+      "references": [
+        "WindowWorks.App.UI"
+      ]
+    },
+    {
+      "name": "WindowWorks.App.UI",
+      "path": "C:\\MyFiles\\Git\\WindowWorks\\WindowWorks\\src\\WindowWorks.App.UI\\WindowWorks.App.UI.csproj",
+      "references": []
+    }
+  ]
+}
