@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace WindowWorks.App
@@ -8,10 +9,10 @@ namespace WindowWorks.App
     /// Implements the exact sequencing verified against the real PowerToys Crop-and-Lock source
     /// (ReparentCropAndLockWindow.cpp), per docs/REPARENT_FEATURE_PLAN.md §8.
     ///
-    /// Phase 0 scope only: whole-window reparent/save/restore mechanics, callable directly
-    /// against a manually-picked target window. No picker UI, no tracking list, no crash
-    /// recovery, no elevation check, and no ancestor-chain child-HWND original-parent restore
-    /// branch (that branch is Phase 1 scope) — those all build on top of this class later.
+    /// Phase 1 scope: whole-window reparent/save/restore mechanics (Phase 0), plus §8 step 8's
+    /// ancestor-chain child-HWND correction — restoring a child-HWND pick to its real original
+    /// parent (identity-verified) rather than making it top-level. No picker UI, no crash
+    /// recovery yet — those build on top of this class later.
     /// </summary>
     public sealed class ReparentEngine
     {
@@ -26,6 +27,54 @@ namespace WindowWorks.App
             public int Style { get; init; }
             public NativeMethods.WINDOWPLACEMENT Placement { get; init; }
             public NativeMethods.RECT OriginalRect { get; init; }
+
+            /// <summary>
+            /// True for an ancestor-chain child-HWND pick (§6.5) — the target's original parent
+            /// was some other window, not the desktop. False for a whole-top-level-window pick,
+            /// whose original parent is implicitly the desktop.
+            /// </summary>
+            public bool IsChildHwndPick { get; init; }
+
+            /// <summary>
+            /// The target's original parent HWND at pick time (<c>GetParent(target)</c>), only
+            /// meaningful when <see cref="IsChildHwndPick"/> is true.
+            /// </summary>
+            public IntPtr OriginalParentHwnd { get; init; }
+
+            /// <summary>
+            /// The original parent's process ID at pick time, used for identity verification
+            /// before restoring into it (the HWND value alone can be recycled by the OS).
+            /// </summary>
+            public uint OriginalParentProcessId { get; init; }
+
+            /// <summary>
+            /// The original parent's process start time at pick time (paired with
+            /// <see cref="OriginalParentProcessId"/> for identity verification — PID alone can
+            /// also be recycled).
+            /// </summary>
+            public DateTime OriginalParentProcessStartTimeUtc { get; init; }
+
+            /// <summary>
+            /// The original parent's window class name at pick time, used as a secondary,
+            /// defense-in-depth identity check alongside PID + process start time.
+            /// </summary>
+            public string? OriginalParentClassName { get; init; }
+
+            /// <summary>
+            /// The target window's own process ID at pick time (docs/REPARENT_FEATURE_PLAN.md §14
+            /// Phase 1 crash recovery) — used, together with
+            /// <see cref="TargetProcessStartTimeUtc"/> and <see cref="TargetClassName"/>, to verify
+            /// on next launch that a saved <see cref="TargetHwnd"/> value still refers to the same
+            /// window rather than a recycled HWND. Not needed for the live-session Close/Restore
+            /// path (the target is known-live there), only for crash recovery after a relaunch.
+            /// </summary>
+            public uint TargetProcessId { get; init; }
+
+            /// <summary>See <see cref="TargetProcessId"/>.</summary>
+            public DateTime TargetProcessStartTimeUtc { get; init; }
+
+            /// <summary>See <see cref="TargetProcessId"/>.</summary>
+            public string? TargetClassName { get; init; }
         }
 
         /// <summary>
@@ -33,7 +82,14 @@ namespace WindowWorks.App
         /// rect so it can later be restored via <see cref="RestoreOriginalState"/>. Must be
         /// called before <see cref="Reparent"/> (§8 step 2).
         /// </summary>
-        public ReparentedWindowState SaveOriginalState(IntPtr targetHwnd)
+        /// <param name="targetHwnd">The window being reparented.</param>
+        /// <param name="isChildHwndPick">
+        /// True for an ancestor-chain child-HWND pick (§6.5) — captures the target's current
+        /// parent (<c>GetParent</c>) plus its identity (PID, process start time, class name) so
+        /// <see cref="RestoreOriginalState"/> can restore into that real original parent instead
+        /// of making the target top-level. False (default) for a whole-top-level-window pick.
+        /// </param>
+        public ReparentedWindowState SaveOriginalState(IntPtr targetHwnd, bool isChildHwndPick = false)
         {
             if (targetHwnd == IntPtr.Zero)
             {
@@ -57,14 +113,133 @@ namespace WindowWorks.App
                 throw new InvalidOperationException("GetWindowRect failed for the target window.");
             }
 
+            IntPtr originalParentHwnd = IntPtr.Zero;
+            uint originalParentPid = 0;
+            DateTime originalParentStartTimeUtc = default;
+            string? originalParentClassName = null;
+
+            if (isChildHwndPick)
+            {
+                // Use GetAncestor(GA_PARENT), not GetParent, to match how AncestorChainWalker
+                // itself walks parents when classifying a pick as child-HWND vs top-level (see
+                // NativeMethods.GetAncestor's remarks above) — using GetParent here previously
+                // captured parent=0 for some real child picks (e.g. Explorer's navigation tree),
+                // permanently losing the ability to restore into the real original parent.
+                originalParentHwnd = NativeMethods.GetAncestor(targetHwnd, NativeMethods.GA_PARENT);
+                if (originalParentHwnd == targetHwnd)
+                {
+                    // GetAncestor returns the window itself if it has no parent/owner at all —
+                    // treat that the same as "no parent" rather than a self-referencing loop.
+                    originalParentHwnd = IntPtr.Zero;
+                }
+
+                if (originalParentHwnd != IntPtr.Zero)
+                {
+                    TryGetWindowIdentity(originalParentHwnd, out originalParentPid, out originalParentStartTimeUtc, out originalParentClassName);
+                }
+            }
+
+            // Target's own identity (docs/REPARENT_FEATURE_PLAN.md §14 crash recovery) — persisted
+            // so a crash-recovery pass on next launch can verify a saved TargetHwnd value hasn't
+            // been recycled to an unrelated window before touching it (not needed for the live-
+            // session Close/Restore path, where the target is already known-live).
+            TryGetWindowIdentity(targetHwnd, out uint targetPid, out DateTime targetStartTimeUtc, out string? targetClassName);
+
             return new ReparentedWindowState
             {
                 TargetHwnd = targetHwnd,
                 ExStyle = exStyle,
                 Style = style,
                 Placement = placement,
-                OriginalRect = rect
+                OriginalRect = rect,
+                IsChildHwndPick = isChildHwndPick,
+                OriginalParentHwnd = originalParentHwnd,
+                OriginalParentProcessId = originalParentPid,
+                OriginalParentProcessStartTimeUtc = originalParentStartTimeUtc,
+                OriginalParentClassName = originalParentClassName,
+                TargetProcessId = targetPid,
+                TargetProcessStartTimeUtc = targetStartTimeUtc,
+                TargetClassName = targetClassName
             };
+        }
+
+        /// <summary>
+        /// Reads a window's identity fields (PID, process start time, class name) used for the
+        /// HWND-reuse identity-verification protocol (§8 step 8 / §14 crash recovery). Returns
+        /// false (leaving out-params at their default) if any of the underlying Win32/process
+        /// calls fail — callers should treat that as "identity unknown", not "identity matches".
+        /// </summary>
+        private static bool TryGetWindowIdentity(IntPtr hwnd, out uint pid, out DateTime processStartTimeUtc, out string? className)
+        {
+            pid = 0;
+            processStartTimeUtc = default;
+            className = null;
+
+            NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
+            if (pid == 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                using var process = Process.GetProcessById((int)pid);
+                processStartTimeUtc = process.StartTime.ToUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                // Any failure here (process exited, access-denied querying an elevated
+                // process's StartTime, etc.) is treated as "identity unknown" — logged so it's
+                // distinguishable from a genuine identity mismatch during troubleshooting, but
+                // still handled the same way by callers (fail closed / fall back to top-level).
+                DebugLog($"TryGetWindowIdentity: failed to query process for hwnd={hwnd}, pid={pid}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+
+            var classNameBuffer = new System.Text.StringBuilder(256);
+            int len = NativeMethods.GetClassName(hwnd, classNameBuffer, classNameBuffer.Capacity);
+            className = len > 0 ? classNameBuffer.ToString() : null;
+
+            return true;
+        }
+
+        /// <summary>
+        /// HWND-reuse identity-verification protocol (§8 step 8 / §14 crash recovery): a bare
+        /// <c>IsWindow</c> check is not sufficient because Win32 HWND values are recycled after a
+        /// window is destroyed. Verifies the live window at <paramref name="hwnd"/> is still the
+        /// same window originally saved by comparing PID + process start time (primary) and
+        /// window class name (secondary, defense-in-depth). Internal (not private) so the
+        /// crash-recovery pass (a separate class, per §14 Phase 1 item 10) can reuse the exact
+        /// same verification logic against a saved <c>TargetHwnd</c>/<c>OriginalParentHwnd</c>
+        /// loaded back from disk, instead of duplicating it.
+        /// </summary>
+        internal static bool VerifyWindowIdentity(IntPtr hwnd, uint savedPid, DateTime savedStartTimeUtc, string? savedClassName)
+        {
+            if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd))
+            {
+                return false;
+            }
+
+            if (!TryGetWindowIdentity(hwnd, out uint livePid, out DateTime liveStartTimeUtc, out string? liveClassName))
+            {
+                return false;
+            }
+
+            if (livePid != savedPid || liveStartTimeUtc != savedStartTimeUtc)
+            {
+                return false;
+            }
+
+            // Secondary sanity check — a class-name mismatch despite matching PID/start-time is
+            // extremely unlikely (would require simultaneous PID and HWND reuse) but is cheap to
+            // also check, per the plan's defense-in-depth guidance.
+            if (savedClassName is not null && liveClassName is not null &&
+                !string.Equals(savedClassName, liveClassName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -85,8 +260,9 @@ namespace WindowWorks.App
         /// <param name="y">Y offset within the host's client area. See <paramref name="x"/>.</param>
         /// <returns>
         /// True if the final <c>SetWindowPos</c> call succeeded. A false return means the target
-        /// app may not tolerate reparenting well (§8 step 6) — callers should surface this via an
-        /// inline notice, not attempt to silently proceed.
+        /// app may not tolerate reparenting well (§8 step 6), or that an elevation mismatch
+        /// blocked the operation before it was attempted (see <see cref="IsElevationMismatch"/>)
+        /// — callers should surface this via an inline notice, not attempt to silently proceed.
         /// </returns>
         public bool Reparent(IntPtr targetHwnd, IntPtr hostChildHwnd, int x = 0, int y = 0)
         {
@@ -97,6 +273,12 @@ namespace WindowWorks.App
             if (hostChildHwnd == IntPtr.Zero)
             {
                 throw new ArgumentException("hostChildHwnd must not be IntPtr.Zero.", nameof(hostChildHwnd));
+            }
+
+            if (IsElevationMismatch(targetHwnd))
+            {
+                DebugLog($"Reparent: blocked, target={targetHwnd} is elevated and WindowWorks is not.");
+                return false;
             }
 
             IntPtr setParentResult = NativeMethods.SetParent(targetHwnd, hostChildHwnd);
@@ -138,6 +320,104 @@ namespace WindowWorks.App
             return posOk;
         }
 
+        /// <summary>
+        /// Elevation mismatch check (§14 Phase 1 item 7): <c>SetParent</c> silently fails (or
+        /// produces a broken embed) when the target process is elevated (running as
+        /// administrator) and WindowWorks itself is not — Windows' UIPI (User Interface
+        /// Privilege Isolation) blocks a lower-integrity process from reparenting/subclassing a
+        /// higher-integrity one. Callers must check this before calling <see cref="Reparent"/>
+        /// and surface a clear inline message instead of attempting (and silently failing) the
+        /// SetParent call.
+        /// </summary>
+        /// <returns>
+        /// True if the target process is elevated while WindowWorks' own process is not (i.e.
+        /// reparenting would be blocked/unsafe). False if elevation matches (both elevated or
+        /// both not) or elevation status couldn't be determined for either side (fails open —
+        /// let the actual SetParent call surface any real failure rather than block on an
+        /// inconclusive check).
+        /// </returns>
+        public static bool IsElevationMismatch(IntPtr targetHwnd)
+        {
+            if (targetHwnd == IntPtr.Zero || !NativeMethods.IsWindow(targetHwnd))
+            {
+                return false;
+            }
+
+            bool? targetElevated = TryIsProcessElevated(targetHwnd);
+            bool? selfElevated = TryIsCurrentProcessElevated();
+            if (targetElevated is null || selfElevated is null)
+            {
+                return false;
+            }
+
+            return targetElevated.Value && !selfElevated.Value;
+        }
+
+        private static bool? TryIsProcessElevated(IntPtr hwnd)
+        {
+            NativeMethods.GetWindowThreadProcessId(hwnd, out uint pid);
+            if (pid == 0)
+            {
+                return null;
+            }
+
+            IntPtr processHandle = NativeMethods.OpenProcess(NativeMethods.PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (processHandle == IntPtr.Zero)
+            {
+                // Commonly ACCESS_DENIED — itself a strong signal the target is elevated and we
+                // are not (a non-elevated process can't even open a handle to an elevated one's
+                // token). Treat as "elevated" rather than "unknown" so the mismatch is still
+                // caught even when the token can't be inspected directly.
+                return Marshal.GetLastWin32Error() == NativeMethods.ERROR_ACCESS_DENIED ? true : null;
+            }
+
+            try
+            {
+                return TryIsElevatedFromProcessHandle(processHandle);
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(processHandle);
+            }
+        }
+
+        private static bool? TryIsCurrentProcessElevated()
+        {
+            return TryIsElevatedFromProcessHandle(NativeMethods.GetCurrentProcess());
+        }
+
+        private static bool? TryIsElevatedFromProcessHandle(IntPtr processHandle)
+        {
+            if (!NativeMethods.OpenProcessToken(processHandle, NativeMethods.TOKEN_QUERY, out IntPtr tokenHandle))
+            {
+                return null;
+            }
+
+            try
+            {
+                int size = Marshal.SizeOf<int>();
+                IntPtr buffer = Marshal.AllocHGlobal(size);
+                try
+                {
+                    if (!NativeMethods.GetTokenInformation(tokenHandle, NativeMethods.TokenElevation, buffer, size, out _))
+                    {
+                        return null;
+                    }
+
+                    int elevation = Marshal.ReadInt32(buffer);
+                    return elevation != 0;
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            }
+            finally
+            {
+                NativeMethods.CloseHandle(tokenHandle);
+            }
+        }
+
 
         // Diagnostic logging for failure paths only (appended to a temp file, mirroring
         // HotkeyManager.DebugLog's pattern) — kept permanently, not just for the original
@@ -154,13 +434,14 @@ namespace WindowWorks.App
         }
 
         /// <summary>
-        /// Restores the target window to its original top-level state, following the exact
-        /// order verified against the real PowerToys source (§8 step 8): rect (<c>SetWindowPos</c>)
-        /// -> unparent (<c>SetParent(..., null)</c>) -> placement (<c>SetWindowPlacement</c>) ->
-        /// styles-last. Whole-window case only — reparenting a whole top-level window's original
-        /// parent is implicitly the desktop, so unparenting to <c>IntPtr.Zero</c> is always
-        /// correct here. Ancestor-chain child-HWND picks (restoring into a real original parent
-        /// HWND instead) are Phase 1 scope, not implemented in this method.
+        /// Restores the target window to its original state, following the exact order verified
+        /// against the real PowerToys source (§8 step 8): rect (<c>SetWindowPos</c>) -> unparent
+        /// (<c>SetParent</c>) -> placement (<c>SetWindowPlacement</c>) -> styles-last. For a
+        /// whole-top-level-window pick (<see cref="ReparentedWindowState.IsChildHwndPick"/>
+        /// false), unparenting to <c>IntPtr.Zero</c> is always correct since the original parent
+        /// is implicitly the desktop. For an ancestor-chain child-HWND pick, restores into the
+        /// real original parent HWND instead (after identity verification), falling back to
+        /// top-level if the original parent is no longer valid/recycled.
         /// </summary>
         public bool RestoreOriginalState(ReparentedWindowState state)
         {
@@ -190,10 +471,41 @@ namespace WindowWorks.App
                 DebugLog($"RestoreOriginalState: SetWindowPos(target={hwnd}) failed, GetLastError={Marshal.GetLastWin32Error()}");
             }
 
-            bool unparented = NativeMethods.SetParent(hwnd, IntPtr.Zero) != IntPtr.Zero;
-            if (!unparented)
+            bool unparented;
+            if (state.IsChildHwndPick)
             {
-                DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, null) failed, GetLastError={Marshal.GetLastWin32Error()}");
+                // §8 step 8 correction: a child-HWND pick's original parent was some other
+                // window, not the desktop — restore into that real original parent instead of
+                // making the target top-level, after identity-verifying it's still the same
+                // parent window (not a recycled HWND). Fall back to top-level if verification
+                // fails, per the plan's explicit guidance (a recovered top-level window the user
+                // can see/deal with manually is strictly better than silently failing or risking
+                // a recycled-HWND hazard).
+                bool parentValid = VerifyWindowIdentity(
+                    state.OriginalParentHwnd,
+                    state.OriginalParentProcessId,
+                    state.OriginalParentProcessStartTimeUtc,
+                    state.OriginalParentClassName);
+
+                IntPtr restoreParent = parentValid ? state.OriginalParentHwnd : IntPtr.Zero;
+                if (!parentValid)
+                {
+                    DebugLog($"RestoreOriginalState: original parent={state.OriginalParentHwnd} for target={hwnd} failed identity verification (or is gone); falling back to top-level.");
+                }
+
+                unparented = NativeMethods.SetParent(hwnd, restoreParent) != IntPtr.Zero;
+                if (!unparented)
+                {
+                    DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, parent={restoreParent}) failed, GetLastError={Marshal.GetLastWin32Error()}");
+                }
+            }
+            else
+            {
+                unparented = NativeMethods.SetParent(hwnd, IntPtr.Zero) != IntPtr.Zero;
+                if (!unparented)
+                {
+                    DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, null) failed, GetLastError={Marshal.GetLastWin32Error()}");
+                }
             }
 
             var placement = state.Placement;
@@ -201,6 +513,13 @@ namespace WindowWorks.App
 
             NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, state.ExStyle);
             NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_STYLE, state.Style & ~NativeMethods.WS_CHILD);
+
+            int finalExStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+            int finalStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
+            bool isEnabled = NativeMethods.IsWindowEnabled(hwnd);
+            bool isVisible = NativeMethods.IsWindowVisible(hwnd);
+            IntPtr finalParent = NativeMethods.GetParent(hwnd);
+            DebugLog($"RestoreOriginalState: target={hwnd} restored. savedExStyle=0x{state.ExStyle:X8}, finalExStyle=0x{finalExStyle:X8}, savedStyle=0x{state.Style:X8}, finalStyle=0x{finalStyle:X8}, isEnabled={isEnabled}, isVisible={isVisible}, finalParent={finalParent}, unparented={unparented}, posOk={posOk}.");
 
             // The restore is only considered successful if the target was actually made
             // top-level again (SetParent succeeding is the operation that matters most for
@@ -272,6 +591,19 @@ namespace WindowWorks.App
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr GetParent(IntPtr hWnd);
 
+            public const uint GA_PARENT = 1;
+
+            // Used (instead of GetParent) to capture the original parent for a child-HWND pick,
+            // so SaveOriginalState agrees with AncestorChainWalker's own parent-walking API
+            // (which uses GetAncestor(hwnd, GA_PARENT), not GetParent). GetParent can return NULL
+            // for some windows (e.g. certain shell/DirectUI child windows such as Explorer's
+            // navigation tree) that GetAncestor(GA_PARENT) still resolves correctly — using
+            // GetParent here was causing SaveOriginalState to record parent=0 for genuine child
+            // picks, which then made RestoreOriginalState always fall back to top-level instead
+            // of restoring into the real original parent.
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
 
@@ -289,6 +621,44 @@ namespace WindowWorks.App
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool IsWindow(IntPtr hWnd);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+            public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+            // Elevation-mismatch check support (§14 Phase 1 item 7).
+            public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+            public const uint TOKEN_QUERY = 0x0008;
+            public const int TokenElevation = 20; // TOKEN_INFORMATION_CLASS.TokenElevation
+            public const int ERROR_ACCESS_DENIED = 5;
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+            [DllImport("kernel32.dll")]
+            public static extern IntPtr GetCurrentProcess();
+
+            [DllImport("kernel32.dll", SetLastError = true)]
+            public static extern bool CloseHandle(IntPtr hObject);
+
+            [DllImport("user32.dll")]
+            public static extern bool IsWindowEnabled(IntPtr hWnd);
+
+            [DllImport("user32.dll")]
+            public static extern bool IsWindowVisible(IntPtr hWnd);
+
+            [DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+            [DllImport("advapi32.dll", SetLastError = true)]
+            public static extern bool GetTokenInformation(
+                IntPtr tokenHandle,
+                int tokenInformationClass,
+                IntPtr tokenInformation,
+                int tokenInformationLength,
+                out int returnLength);
         }
     }
 }

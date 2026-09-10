@@ -1,0 +1,54 @@
+<UserControl x:Class="WindowWorks.App.UI.WindowReparentingSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Height="460" Width="520">
+    <StackPanel Margin="12">
+        <TextBlock FontSize="16" FontWeight="Bold">Window Reparenting</TextBlock>
+        <CheckBox x:Name="ChkEnableWindowReparenting" Content="Enable Window Reparenting" Margin="0,8,0,0" IsChecked="{Binding EnableWindowReparenting, Mode=TwoWay}" />
+        <TextBlock Margin="20,4,0,0" TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="11">
+            Master toggle for this feature. When off, the reparent hotkey/picker is disabled
+            entirely. Already-reparented windows are unaffected -- Close/Restore and "Reset
+            Reparenting" always remain available regardless of this setting.
+        </TextBlock>
+
+        <Border Margin="20,10,0,0" BorderBrush="#FF3F3F3F" BorderThickness="1,0,0,0" Padding="12,0,0,0">
+            <StackPanel>
+                <CheckBox x:Name="ChkEnablePopOutAndReparent" Content="Pop Out and Reparent" Margin="0,4,0,0"
+                          IsChecked="{Binding EnablePopOutAndReparent, Mode=TwoWay}"
+                          IsEnabled="{Binding EnableWindowReparenting}" />
+                <TextBlock Margin="20,4,0,0" TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="11">
+                    Allows popping out a whole window or ancestor element and reparenting it into
+                    a WindowWorks-managed frame. Disabling this only affects new reparents --
+                    already-open reparented frames are unaffected. Follows the master toggle above
+                    (greyed out and unchecked whenever the master toggle is off).
+                </TextBlock>
+
+                <Border Margin="20,10,0,0" BorderBrush="#FF3F3F3F" BorderThickness="1,0,0,0" Padding="12,0,0,0">
+                    <StackPanel>
+                        <CheckBox x:Name="ChkAllowResizingReparentedChildElements" Content="Allow resizing reparented child elements" Margin="0,4,0,0"
+                                  IsChecked="{Binding AllowResizingReparentedChildElements, Mode=TwoWay}"
+                                  IsEnabled="{Binding EnablePopOutAndReparent}" />
+                        <TextBlock Margin="20,4,0,0" TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="11">
+                            Advanced/opt-in. Only applies to elements popped out via "Pop Out and
+                            Reparent" above (greyed out here whenever that setting is off or
+                            unavailable; your choice is remembered, not reset). When reparenting a
+                            specific control within a window (not the whole window), the
+                            reparented frame is fixed-size by default because most controls have no
+                            way to correctly resize themselves once moved out of their original
+                            parent's layout. Enabling this allows resizing such frames anyway, at
+                            your own risk -- some apps may show clipped, stretched, or corrupted
+                            content. Only affects new reparents made after this is turned on;
+                            windows already reparented are unaffected.
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Margin="0,12,0,0" TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="11" FontStyle="Italic">
+            Note: some apps may not handle reparenting well (visual glitches, input issues, or
+            crashes). If you see problems after reparenting a specific app, use Close/Restore or
+            "Reset Reparenting" to return it to normal.
+        </TextBlock>
+    </StackPanel>
+</UserControl>

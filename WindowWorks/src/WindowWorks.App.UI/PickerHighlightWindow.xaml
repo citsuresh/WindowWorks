@@ -1,0 +1,10 @@
+<Window x:Class="WindowWorks.App.UI.PickerHighlightWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False"
+        ResizeMode="NoResize" ShowActivated="False" Loaded="OnLoaded">
+    <Canvas>
+        <Border x:Name="BorderHighlight" BorderThickness="3" CornerRadius="2" BorderBrush="#CCFFFF00" Background="Transparent" Visibility="Collapsed"
+                SnapsToDevicePixels="True" UseLayoutRounding="True" />
+    </Canvas>
+</Window>

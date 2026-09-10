@@ -25,9 +25,19 @@ namespace WindowWorks.App
             // ClickThrough manager - tracks modified windows and applies WS_EX_TRANSPARENT
             var clickThroughManager = new ClickThroughManager(settings, auditLog);
 
-            var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager);
+            // Reparent controller - created here (not inside TrayApplicationContext) so the tray
+            // menu's "Reset Reparenting" entry (docs/REPARENT_FEATURE_PLAN.md §8 step 11) can
+            // share the same instance/tracking list as the hotkey-driven picker flow.
+            var reparentController = new ReparentController(settings);
 
-            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager);
+            // Crash recovery (§14 Phase 1 item 10): run once at startup, before any new picker/
+            // hotkey activity, so any windows left orphaned by a previous crash (before its
+            // normal restore path ran) are recovered before the user can start reparenting again.
+            try { reparentController.RunCrashRecoveryPass(); } catch { }
+
+            var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager, reparentController);
+
+            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager, reparentController);
             // Register UI services using a minimal local service collection (no external NuGet required)
             try
             {
@@ -68,9 +78,9 @@ namespace WindowWorks.App
         private readonly AuditLog _auditLog;
         private readonly Models.AppSettings _settings;
         private readonly ClickThroughManager _clickThroughManager;
-        private readonly ReparentController _reparentController = new();
+        private readonly ReparentController _reparentController;
 
-        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager)
+        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController reparentController)
         {
             _tray = tray;
             _hotkeyManager = hotkeyManager;
@@ -80,6 +90,7 @@ namespace WindowWorks.App
             _auditLog = auditLog;
             _settings = settings;
             _clickThroughManager = clickThroughManager ?? throw new ArgumentNullException(nameof(clickThroughManager));
+            _reparentController = reparentController ?? throw new ArgumentNullException(nameof(reparentController));
 
             // Start managers that require message loop or hooks
             _hotkeyManager.Start();
@@ -181,6 +192,12 @@ namespace WindowWorks.App
         {
             if (disposing)
             {
+                // Graceful-shutdown restore (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 item 9):
+                // restore every currently-reparented window back to its original state before the
+                // app exits normally, so a normal exit never leaves stray reparented windows behind
+                // (crash recovery via a state file is a separate, not-yet-implemented mechanism —
+                // this only covers the graceful/non-crash exit path).
+                try { _reparentController.RestoreAll(); } catch { }
                 _tray.Dispose();
                 _hotkeyManager.Dispose();
                 _windowManager.Dispose();
@@ -188,6 +205,7 @@ namespace WindowWorks.App
                 _persistence.Dispose();
                 _auditLog.Dispose();
                 try { _clickThroughManager.Dispose(); } catch { }
+                try { _reparentController.Dispose(); } catch { }
             }
             base.Dispose(disposing);
         }

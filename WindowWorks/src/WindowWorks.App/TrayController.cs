@@ -21,9 +21,10 @@ namespace WindowWorks.App
         private readonly Persistence _persistence;
         private readonly Models.AppSettings _settings;
         private readonly ClickThroughManager _clickThroughManager;
+        private readonly ReparentController? _reparentController;
         public event EventHandler? ExitRequested;
 
-        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager)
+        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController? reparentController = null)
         {
             _hotkeyManager = hotkeyManager;
             _windowManager = windowManager;
@@ -32,6 +33,7 @@ namespace WindowWorks.App
             _persistence = persistence;
             _settings = settings;
             _clickThroughManager = clickThroughManager ?? throw new ArgumentNullException(nameof(clickThroughManager));
+            _reparentController = reparentController;
 
             _notifyIcon = new NotifyIcon();
             try
@@ -191,6 +193,38 @@ namespace WindowWorks.App
                 }
                 catch { }
             }));
+            // Add "Reset Reparenting" entry (docs/REPARENT_FEATURE_PLAN.md §8 step 11, §14 Phase 1
+            // item 6): scoped all-or-nothing restore of every currently-reparented window, mirroring
+            // the "Reset Click-Through" pattern above. Disabled (not omitted) when nothing is
+            // currently reparented, so the menu item's presence doesn't shift depending on state,
+            // but clicking it while empty is a no-op rather than showing a pointless confirmation.
+            var resetReparentingItem = new ToolStripMenuItem("Reset Reparenting", null, (s, e) =>
+            {
+                try
+                {
+                    if (_reparentController is null || _reparentController.TrackingList.Entries.Count == 0)
+                    {
+                        return;
+                    }
+
+                    var result = MessageBox.Show(
+                        "Restore all currently reparented windows to their original state?",
+                        "Reset Reparenting",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Warning);
+                    if (result == DialogResult.Yes)
+                    {
+                        try { _reparentController.RestoreAll(); } catch { }
+                    }
+                }
+                catch { }
+            });
+            menu.Items.Add(resetReparentingItem);
+            menu.Opening += (s, e) =>
+            {
+                resetReparentingItem.Enabled = _reparentController is not null && _reparentController.TrackingList.Entries.Count > 0;
+            };
+
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Exit", null, (s, e) => ExitRequested?.Invoke(this, EventArgs.Empty)));
 
@@ -249,6 +283,18 @@ namespace WindowWorks.App
                             }
 
                             try { _persistence.SaveSettings(_settings); } catch { }
+
+                            // §14 Phase 1 item 11 / §9: if the Settings dialog just turned off the
+                            // master "Enable Window Reparenting" toggle or the "Pop Out and
+                            // Reparent" sub-toggle, cancel any picker session that might currently
+                            // be active so it doesn't keep offering an action Settings just
+                            // disabled. Never affects already-reparented content (Close/Restore
+                            // and Reset Reparenting remain untouched).
+                            if (_reparentController is not null &&
+                                (!_settings.EnableWindowReparenting || !_settings.EnablePopOutAndReparent))
+                            {
+                                try { _reparentController.CancelActivePicker(); } catch { }
+                            }
                         }
                     }
                     catch { }

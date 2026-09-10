@@ -74,7 +74,7 @@ namespace WindowWorks.App.UI
             try
             {
                 NavList.Items.Clear();
-                var sections = new[] { "General", "Highlight", "HUD", "Click-Through", "Shortcuts" };
+                var sections = new[] { "General", "Highlight", "HUD", "Click-Through", "Window Reparenting", "Shortcuts" };
                 foreach (var s in sections)
                 {
                     var nameTb = new System.Windows.Controls.TextBlock(new System.Windows.Documents.Run(s));
@@ -132,6 +132,12 @@ namespace WindowWorks.App.UI
                 try { if (_initialDict != null) ctVm.LoadFromDictionary(_initialDict); } catch { }
                 _sections["Click-Through"].Vm = ctVm;
                 try { WireVmDirtyTracking("Click-Through", ctVm); } catch { }
+
+                // Window Reparenting
+                var wrVm = new WindowWorks.App.UI.ViewModels.WindowReparentingSettingsViewModel();
+                try { if (_initialDict != null) wrVm.LoadFromDictionary(_initialDict); } catch { }
+                _sections["Window Reparenting"].Vm = wrVm;
+                try { WireVmDirtyTracking("Window Reparenting", wrVm); } catch { }
 
                 // Shortcuts
                 var sVm = new WindowWorks.App.UI.ViewModels.ShortcutsSettingsViewModel();
@@ -277,6 +283,24 @@ namespace WindowWorks.App.UI
                     _sections["Click-Through"].Control = ct;
                     break;
 
+                case "Window Reparenting":
+                    var wr = new WindowReparentingSettingsControl();
+                    try
+                    {
+                        var wrVm = new WindowWorks.App.UI.ViewModels.WindowReparentingSettingsViewModel();
+                        if (_initialDict != null) wrVm.LoadFromDictionary(_initialDict);
+                        wr.DataContext = wrVm;
+                        _sections["Window Reparenting"].Vm = wrVm;
+                        try { WireVmDirtyTracking("Window Reparenting", wrVm); } catch { }
+                    }
+                    catch
+                    {
+                        try { if (_initialDict != null) wr.LoadFromDictionary(_initialDict); } catch { }
+                    }
+                    ContentArea.Content = wr;
+                    _sections["Window Reparenting"].Control = wr;
+                    break;
+
                 default:
                     ContentArea.Content = null;
                     break;
@@ -291,6 +315,13 @@ namespace WindowWorks.App.UI
             {
                 // Build a lightweight dictionary and serialize to JSON for the host to consume
                 var settingsDict = new Dictionary<string, object?>();
+                // Window Reparenting page: ensure the checkbox binding has pushed to its VM.
+                if (ContentArea.Content is WindowReparentingSettingsControl wr)
+                {
+                    try { UpdateBindingSource(wr, "ChkEnableWindowReparenting", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                    try { UpdateBindingSource(wr, "ChkEnablePopOutAndReparent", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                    try { UpdateBindingSource(wr, "ChkAllowResizingReparentedChildElements", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                }
                 // Attempt to populate fields from HighlightSettingsControl if visible
                 if (ContentArea.Content is HighlightSettingsControl h)
                 {

@@ -1368,7 +1368,52 @@ entirely are items with an external blocker (no multi-monitor test hardware
 > hook, graceful-shutdown restore, crash recovery, and the Settings section
 > toggles. Proceed with the remaining Phase 1 checklist below.
 
-### Phase 1 — Full picker + whole/ancestor-element "Pop Out and Reparent," fully hardened
+### Phase 1 — Full picker + whole/ancestor-element "Pop Out and Reparent," fully hardened — **STATUS: CODE COMPLETE**
+
+> **Implementation status — Phase 1 CODE COMPLETE and reviewed (updated for
+> continuity across chat sessions):** all remaining Phase 1 scope beyond the
+> first slice has now been implemented and code-reviewed slice-by-slice, plus
+> a final cross-cutting review of the whole accumulated diff together:
+> real ancestor-chain picker + yellow-box overlay (`AncestorChainWalker`,
+> `WindowPickerSession`, `PickerHighlightWindow`, `PickerBoxListWindow`),
+> elevation-mismatch detection, in-memory tracking list + Active/Restoring
+> state machine (`ReparentTrackingList`), restore-to-original-parent for
+> ancestor-chain child-HWND picks (identity-verified via PID + process start
+> time + class name, `GetAncestor(GA_PARENT)` used consistently instead of
+> `GetParent` after a real bug was found and fixed there), conditional
+> resizability + the "allow resizing reparented child elements" setting,
+> `SetWinEventHook(EVENT_OBJECT_DESTROY)` replacing polling, "Reset
+> Reparenting" tray menu item + graceful-shutdown restore-all, crash-recovery
+> JSON persistence (`%APPDATA%\WindowWorks\reparented-windows.json`,
+> write-before-mutate / remove-after-restore ordering, identity-verified
+> recovery pass at next launch), and the "Window Reparenting" Settings
+> section (master `EnableWindowReparenting` toggle, `EnablePopOutAndReparent`
+> sub-toggle, both default-on and correctly gating the picker hotkey to be
+> fully inert when off, without affecting already-reparented content).
+>
+> A final cross-cutting review (looking specifically for interaction bugs
+> between pieces built at different times, not just each slice in isolation)
+> found and confirmed the fix for one real, high-confidence bug:
+> `ReparentHostWindow.OnClosing` used to unconditionally `DestroyWindow` the
+> socket window regardless of whether the restore's `SetParent`-back call
+> actually succeeded — since destroying a window destroys its `WS_CHILD`
+> children, a failed unparent (a real, already-logged failure path) could
+> have silently destroyed the user's actual embedded window instead of
+> merely leaving it orphaned. Fixed via a `RestoreOutcomeEventArgs` carrying
+> the real unparent outcome back to `OnClosing`, plus a follow-up fix
+> (`ReparentHostWindow.NotifyRestoreAlreadyHandled`) for a second bug the
+> regression audit caught in `RestoreAll()`'s interaction with the same
+> event. Both fixes verified via code review and a clean build.
+>
+> Known, accepted (not fixed) app-compatibility limitations remain
+> documented in `docs/KNOWN_OPEN_FINDINGS.md` (modern Windows 11 Notepad
+> rendering glitches; Chrome's `Chrome_RenderWidgetHostHWND` blank-frame and
+> restore-side mouse-input-dead findings) — these are root-caused to target
+> apps' own composition/window-tracking behavior, not WindowWorks bugs, and
+> are explicitly out of scope for Phase 1 completion. Manual end-to-end
+> testing (including the Settings toggle enabled/disabled paths, acceptance
+> checklist items 1-15) has been performed by the user across all slices.
+> Proceed to Phase 2 (Crop-and-Reparent mode) when ready.
 
 This is intentionally the largest phase: it now includes **everything**
 needed for a single, real, end-to-end "pick a highlighted element under the

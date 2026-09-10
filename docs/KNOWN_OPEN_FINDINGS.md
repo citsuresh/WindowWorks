@@ -42,3 +42,61 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   should detect/warn about packaged/WinUI3 targets specifically (in addition to the general
   compatibility-warning toggle already planned in Â§4/Â§9), or simply document this as a known
   limitation for v1.
+
+## Reparenting/restoring "Chrome Legacy Window" (Chrome_RenderWidgetHostHWND) leaves the browser window mouse-input-dead
+
+- **First seen:** 2026-09-10
+- **Last seen:** 2026-09-10
+- **Occurrences:** 1
+- **Description:** In the ancestor-chain picker (docs/REPARENT_FEATURE_PLAN.md), a Chrome/Chromium
+  browser window's ancestor chain surfaces two yellow-box picks: the real content window (e.g. the
+  YouTube tab) and an internal "Chrome Legacy Window" (class `Chrome_RenderWidgetHostHWND`).
+  Reparenting the real content window and restoring it works fine. Reparenting the Chrome Legacy
+  Window pick and then restoring it leaves the browser window's mouse input completely dead
+  (clicks/hover do nothing) while keyboard input continues to work. This is a distinct symptom from
+  the already-known "picking Chrome Legacy Window produces a blank reparented frame" limitation —
+  this is the *restore* side, not the reparent side, and it corrupts the ordinary top-level browser
+  window's usability afterward, not just the reparented view.
+- **Analysis:** `Chrome_RenderWidgetHostHWND` is a Chromium-internal helper window (used for IME/
+  accessibility/input plumbing), not independent UI — its position/z-order relative to the real
+  content window is normally managed entirely by Chrome itself. Moving it out via `SetParent`
+  (ReparentEngine.Reparent) and back (ReparentEngine.RestoreOriginalState) desyncs Chrome's internal
+  expectations for that window, silently breaking mouse hit-testing for the browser while leaving
+  keyboard/focus routing (which doesn't depend on this window's z-order/position) intact. Diagnostic
+  logging added to `RestoreOriginalState` (final ExStyle/Style/enabled/visible/parent state) did not
+  show any obviously-wrong Win32 style bits — style/parent restoration appears mechanically correct;
+  the breakage is believed to be in Chrome's own internal window-position tracking for this helper
+  HWND, not a WindowWorks-side style/flag bug.
+- **Suggested handling (not yet implemented):** Two options were discussed and left open per user
+  request: (a) detect and block reparenting of internal accessibility/legacy-helper windows like
+  this one via a generic (non-hardcoded-classname) heuristic, or (b) attempt a best-effort z-order/
+  position re-sync (e.g. `SetWindowPos`/`BringWindowToTop`) after restore specifically for this
+  case. Neither has been implemented. For now, avoid picking "Chrome Legacy Window" during manual
+  testing/use — pick the real content window instead.
+
+## Reparented Chrome/Chromium window's own tab-strip acts as a draggable "title bar," causing paint glitches when dragged
+
+- **First seen:** 2026-09-10
+- **Last seen:** 2026-09-10
+- **Occurrences:** 1
+- **Description:** After reparenting a Chrome/Chromium browser window's real content window (e.g.
+  the YouTube tab pick, not the Chrome Legacy Window pick) into the host frame, the host's own
+  title bar is correctly the only *real* OS title bar (expected/working as designed). However, the
+  reparented Chrome content itself still shows/behaves as if its own tab strip area is a draggable
+  region: clicking and dragging within it moves things and produces background painting
+  glitches/artifacts (diagonal stray pixel "staircase" marks, stray disconnected icon fragments),
+  even though `Reparent()` already strips `WS_CAPTION`/`WS_THICKFRAME`/etc. real OS chrome bits.
+- **Analysis:** Chrome implements its own custom draggable region in client-area content (via
+  `WM_NCHITTEST` returning `HTCAPTION` for its tab-strip area) so the tab strip can be dragged like
+  a title bar even in borderless/frameless window modes — this is an app-level emulation, separate
+  from real `WS_CAPTION` non-client chrome, and is not affected by stripping `WS_CAPTION`/
+  `WS_THICKFRAME` in `ReparentEngine.Reparent`. Once reparented (WS_CHILD inside the host's socket),
+  dragging this region still triggers Chrome's own move logic (e.g. `WM_SYSCOMMAND`/`SC_MOVE`)
+  against a window that is no longer really top-level, which conflicts with the host frame's layout
+  and produces the observed ghosting/paint artifacts.
+- **Suggested handling (not yet implemented):** intercept/suppress `WM_NCHITTEST` HTCAPTION
+  responses and/or `WM_SYSCOMMAND`/`SC_MOVE` messages directed at the reparented target (would
+  require subclassing the target's WndProc, which the codebase does not currently do — see the
+  related, currently-removed `SubclassTarget`/`UnsubclassTarget` mechanism referenced only in old
+  log entries, not in current code). Deferred; user chose to log this and move on to conditional
+  resizability (Phase 1 item 4) instead of fixing now.

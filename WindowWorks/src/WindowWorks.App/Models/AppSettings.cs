@@ -45,6 +45,29 @@ namespace WindowWorks.App.Models
         // Invokes the (currently naive, placeholder) window picker — see ReparentController.
         public string HotkeyWindowReparent { get; set; } = "Ctrl+Alt+P";
 
+        // Window Reparenting: master enable/disable toggle for the whole feature (§9). Default
+        // ON — ships enabled by default, not gated behind an extra opt-in step. When off, the
+        // reparent hotkey/picker must be fully inert (no picker invocable, no stray UI); this
+        // does NOT affect already-reparented content — Close/Restore and "Reset Reparenting"
+        // must always remain available regardless of this toggle's state (§9's "undo paths must
+        // never be disableable" principle).
+        public bool EnableWindowReparenting { get; set; } = true;
+
+        // Window Reparenting: "Pop Out and Reparent" sub-toggle — the whole-window/ancestor-
+        // element reparent action (§6, §9). Default ON. "Crop and Reparent" is a second,
+        // independent sub-toggle per §9, but crop mode itself is Phase 2 scope (not yet
+        // implemented), so its toggle is intentionally not added until that phase.
+        public bool EnablePopOutAndReparent { get; set; } = true;
+
+        // Window Reparenting: "Allow resizing reparented child elements" (§9, §6.5 three-way
+        // fixed-size finding). Off by default — an ancestor-chain child-HWND pick (not the whole
+        // top-level window, not crop mode) has no reliable self-relayout contract, so its host
+        // frame defaults to fixed-size (no resize grips). Enabling this opts into resize support
+        // for such picks at the user's own risk (some child controls may not tolerate it). Only
+        // affects NEW picks made after the toggle changes — already-open reparented host frames
+        // are unaffected (decided once, at reparent time).
+        public bool AllowResizingReparentedChildElements { get; set; } = false;
+
         // NOTE: transparency/topmost gestures are mouse-based by default; no keyboard shortcuts stored here.
         
         // Configurable mouse gestures stored as strings (e.g. "Ctrl+MouseWheel+Up", "Ctrl+Alt+Click")

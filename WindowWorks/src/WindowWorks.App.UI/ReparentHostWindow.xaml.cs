@@ -90,6 +90,22 @@ namespace WindowWorks.App.UI
         public IntPtr TargetHwnd { get; set; } = IntPtr.Zero;
 
         /// <summary>
+        /// Configures whether this host frame can be resized by the user (docs/REPARENT_FEATURE_PLAN.md
+        /// §6.5/§9's three-way fixed-size distinction, item 4): a whole top-level window pick
+        /// should remain resizable (default), while an ancestor-chain child-HWND pick defaults to
+        /// fixed-size (no resize grips/maximize affordance, drag-to-reposition only) unless the
+        /// user has opted into the "Allow resizing reparented child elements" setting. Must be
+        /// called before <see cref="OnLoaded"/> runs (i.e. before this window is shown) — this
+        /// sets <see cref="ResizeMode"/>/<see cref="WindowState"/>-affecting properties that WPF
+        /// expects to be stable at load time, and the plan's toggle-timing rule means this is
+        /// decided once, at reparent time, not re-evaluated later for an already-open host frame.
+        /// </summary>
+        public void ConfigureResizability(bool resizable)
+        {
+            ResizeMode = resizable ? ResizeMode.CanResizeWithGrip : ResizeMode.CanMinimize;
+        }
+
+        /// <summary>
         /// Sets <see cref="TargetHwnd"/>, resizes this host frame to fit the target's original
         /// window dimensions, then re-runs <see cref="PositionSocket"/> to align the socket (and
         /// the already-embedded target) within the newly-sized client area.
@@ -171,8 +187,14 @@ namespace WindowWorks.App.UI
         /// via any other path (Alt+F4, chrome close) — the caller must restore the target's
         /// original state in response to this event (via its own ReparentEngine instance) before
         /// this window finishes closing, so the target is never left orphaned.
+        ///
+        /// BUG FIX (destroy-on-failed-restore report): the handler must set
+        /// <see cref="RestoreOutcomeEventArgs.UnparentSucceeded"/> to false if the restore's
+        /// SetParent-back-to-original-parent step failed, so <see cref="OnClosing"/> knows not to
+        /// destroy the socket window while the target might still be a WS_CHILD of it — see
+        /// <see cref="OnClosing"/> for why.
         /// </summary>
-        public event EventHandler? RestoreRequested;
+        public event EventHandler<RestoreOutcomeEventArgs>? RestoreRequested;
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
@@ -204,6 +226,25 @@ namespace WindowWorks.App.UI
         }
 
         private bool _restoreRequestedOnClose;
+        private bool _unparentSucceeded = true;
+
+        /// <summary>
+        /// Lets a caller that already performed the restore itself (outside the normal
+        /// Close/Restore-button or Alt+F4/chrome-close paths — currently only
+        /// <c>ReparentController.RestoreAll()</c>, which calls <c>RestoreEntry</c> directly before
+        /// calling <see cref="Window.Close"/>) record the real outcome up front, so
+        /// <see cref="OnClosing"/> doesn't re-raise <see cref="RestoreRequested"/> and get a
+        /// second, misleading "already handled" result back (§ destroy-on-failed-restore fix).
+        /// Without this, a second <c>RestoreEntry</c> call for an already-removed tracking-list
+        /// entry always returns true (its no-op branch), which would incorrectly report success
+        /// and let <see cref="OnClosing"/> destroy the socket even if the *first*, real restore
+        /// attempt had actually failed to unparent the target.
+        /// </summary>
+        public void NotifyRestoreAlreadyHandled(bool unparentSucceeded)
+        {
+            _restoreRequestedOnClose = true;
+            _unparentSucceeded = unparentSucceeded;
+        }
 
         private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
@@ -213,7 +254,13 @@ namespace WindowWorks.App.UI
             if (!_restoreRequestedOnClose)
             {
                 _restoreRequestedOnClose = true;
-                RestoreRequested?.Invoke(this, EventArgs.Empty);
+
+                // Defaults to true: if RestoreRequested has no subscriber, or the target was
+                // never actually reparented in the first place (nothing to unparent), there is no
+                // known unparent failure, so the socket is still safe to destroy below.
+                var args = new RestoreOutcomeEventArgs();
+                RestoreRequested?.Invoke(this, args);
+                _unparentSucceeded = args.UnparentSucceeded;
             }
 
             _hwndSource?.RemoveHook(WndProc);
@@ -224,10 +271,24 @@ namespace WindowWorks.App.UI
                 _targetResizeDebounceTimer = null;
             }
 
+            // BUG FIX (destroy-on-failed-restore report): destroying a window also destroys its
+            // children (Win32 semantics). If the restore's SetParent-back call failed, the target
+            // may still be a WS_CHILD of _socketHwnd at this point — destroying the socket here
+            // would silently destroy the user's actual embedded window instead of merely leaving
+            // it orphaned/floating. Leak the socket instead (harmless/recoverable — it's just a
+            // native window that will go away when this process exits) whenever the restore is
+            // known to have failed to unparent the target.
             if (_socketHwnd != IntPtr.Zero)
             {
-                NativeMethods.DestroyWindow(_socketHwnd);
-                _socketHwnd = IntPtr.Zero;
+                if (_unparentSucceeded)
+                {
+                    NativeMethods.DestroyWindow(_socketHwnd);
+                    _socketHwnd = IntPtr.Zero;
+                }
+                else
+                {
+                    DebugLog($"OnClosing: restore reported unparent failure; leaking socket={_socketHwnd} instead of destroying it, to avoid destroying a still-embedded target.");
+                }
             }
         }
 
@@ -619,5 +680,24 @@ namespace WindowWorks.App.UI
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool IsWindow(IntPtr hWnd);
         }
+    }
+
+    /// <summary>
+    /// Event args for <see cref="ReparentHostWindow.RestoreRequested"/> (destroy-on-failed-restore
+    /// fix, docs/REPARENT_FEATURE_PLAN.md): lets the restore handler report back whether the
+    /// target was actually successfully unparented, so <see cref="ReparentHostWindow.OnClosing"/>
+    /// can decide whether it's safe to destroy the socket window (destroying a window destroys its
+    /// WS_CHILD children, including a target that failed to unparent).
+    /// </summary>
+    public sealed class RestoreOutcomeEventArgs : EventArgs
+    {
+        /// <summary>
+        /// True (the default) unless the handler explicitly reports that the restore's
+        /// SetParent-back-to-original-parent step failed for a target that was actually
+        /// reparented into this host's socket. Defaulting to true covers the "nothing was ever
+        /// reparented" / "no subscriber" cases, where there's no known failure and the socket
+        /// remains safe to destroy.
+        /// </summary>
+        public bool UnparentSucceeded { get; set; } = true;
     }
 }
