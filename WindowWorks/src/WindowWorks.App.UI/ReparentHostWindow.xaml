@@ -1,0 +1,21 @@
+<Window x:Class="WindowWorks.App.UI.ReparentHostWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="WindowWorks - Reparented Window"
+        Width="800" Height="600"
+        Loaded="OnLoaded" Closing="OnClosing">
+    <DockPanel LastChildFill="True">
+        <Border DockPanel.Dock="Top" Background="#FF2D2D30" Padding="4">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CloseRestoreButton" Content="Close/Restore" Padding="8,2" Click="OnCloseRestoreClick" />
+            </StackPanel>
+        </Border>
+        <!--
+            Socket area: a plain WS_CHILD Win32 window (created in code-behind, not a WPF element)
+            sits behind this Border and is what the reparented target is actually SetParent'd into.
+            The Border here just reserves layout space; the real socket HWND is positioned/sized
+            to match it in code-behind (see PositionSocket()).
+        -->
+        <Border x:Name="SocketHost" Background="#FF1E1E1E" />
+    </DockPanel>
+</Window>

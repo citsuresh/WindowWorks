@@ -1271,7 +1271,19 @@ entirely are items with an external blocker (no multi-monitor test hardware
 — tracked in `docs/ROADMAP.md`) or genuinely optional stretch scope
 (Phase 5).
 
-### Phase 0 — Foundation/plumbing (no user-visible UI yet)
+### Phase 0 — Foundation/plumbing (no user-visible UI yet) — **STATUS: CODE COMPLETE**
+
+> **Implementation status (updated for continuity across chat sessions):**
+> Phase 0 code is written and builds successfully — see the "Execution
+> note" below for exactly what was built (`ReparentEngine.cs`,
+> `ReparentHostWindow.xaml(.cs)`) and two regression-audit fixes already
+> applied (`RestoreOriginalState` failure-propagation,
+> `s_wndProcDelegate` GC-rooting). **Not yet manually verified end-to-end**
+> against this section's own acceptance criteria below, because there is
+> still no invocation path (no hotkey, no picker) — that invocation path
+> is Phase 1's first slice (Parts 1+4, see the Execution note), and manual
+> verification of Phase 0's mechanics is expected to happen naturally once
+> that first slice exists. Proceed directly to Phase 1.
 
 - Core `SetParent`/`WS_CHILD` save-restore mechanics (§8) proven against a
   single hardcoded/test HWND — save state, reparent, restore — with no
@@ -1282,6 +1294,44 @@ entirely are items with an external blocker (no multi-monitor test hardware
 - **Acceptance criteria:** a hardcoded target window can be reparented into
   the test host frame and restored to its original top-level state, with no
   visible corruption of style/placement, verified manually.
+
+- **Execution note (implementation-session decomposition, recorded for
+  continuity across chat sessions — not a design change, purely a
+  sequencing/labeling clarification):** since hardcoding a literal test HWND
+  in shipped code was explicitly ruled out during implementation planning,
+  Phase 0 was carried out as two independently-reviewable pieces instead of
+  one, with a real (not fake) manual invocation path replacing the
+  hardcoded HWND the plan text above describes:
+  - **Part 2 — `ReparentEngine` core mechanics** (`WindowWorks.App/ReparentEngine.cs`):
+    `SaveOriginalState`/`Reparent`/`RestoreOriginalState`, implementing the
+    exact §8 ordering (reparent: `SetParent` → OR in `WS_CHILD` →
+    `SetWindowPos`; restore: rect → unparent → placement → styles-last).
+    Whole-window case only — the child-HWND original-parent restore branch
+    remains deferred to Phase 1, unchanged from the plan.
+  - **Part 3 — minimal WPF host frame** (`WindowWorks.App.UI/ReparentHostWindow.xaml(.cs)`):
+    unstyled `Window`, one socket area, a Close/Restore button, and the
+    `HwndSource.AddHook` bridge for `WM_MOUSEACTIVATE`/`WM_ACTIVATE` (§8
+    step 7), per the resolved host-frame-technology decision above.
+  - These two parts together are what satisfies this Phase 0 section's own
+    acceptance criteria above — verified via a manually-invoked test path
+    (a developer-driven call into `ReparentEngine` against a window picked
+    by hand during testing), not a hardcoded HWND literal in shipped code.
+  - **Explicitly NOT part of Phase 0** (deferred, see Phase 1 below instead):
+    a hotkey entry point and any real cursor-based window picking. Two
+    further pieces originally considered for this same work session —
+    **Part 1** (hotkey plumbing: `HotkeyWindowReparent` setting, default
+    `Ctrl+Alt+P` placeholder, mirroring the existing per-hotkey pattern in
+    `AppSettings.cs`/`HotkeyManager.cs`/`HotkeyApplyService.cs`/`Program.cs`)
+    and **Part 4** (naive `WindowFromPoint` + `GetAncestor(..., GA_ROOT)`
+    root-only picking, wired end-to-end to the hotkey) — were identified as
+    scope that actually belongs to Phase 1's required picker-entry-point
+    deliverable (see Phase 1 below), not Phase 0, even though they were
+    designed alongside Phase 0 for a demoable end-to-end path. If/when
+    Parts 1 and 4 are implemented, they are explicitly a **placeholder**
+    picking mechanism — naive root-only resolution, no ancestor-chain
+    discovery, no yellow-box confirm UI — that the real picker (§6.2/§6.3)
+    is expected to supersede later within Phase 1, not a permanent
+    substitute for it.
 
 ### Phase 1 — Full picker + whole/ancestor-element "Pop Out and Reparent," fully hardened
 
