@@ -1333,6 +1333,41 @@ entirely are items with an external blocker (no multi-monitor test hardware
     is expected to supersede later within Phase 1, not a permanent
     substitute for it.
 
+> **Implementation status — first slice CODE COMPLETE and manually verified
+> (updated for continuity across chat sessions):** Parts 1+4 (see the
+> Execution note above) have been implemented and manually tested
+> end-to-end: hotkey (`Ctrl+Alt+P`, `HotkeyWindowReparent`) → naive
+> `WindowFromPoint`+`GetAncestor(GA_ROOT)` whole-window-only pick →
+> `ReparentEngine.Reparent`/`RestoreOriginalState` → `ReparentHostWindow`
+> (WPF host frame with native socket, activation forwarding, resizable host
+> with debounced target-resize re-application, `WM_DPICHANGED` handling).
+> Bugs found and fixed during manual testing: `RegisterClass` ANSI/Unicode
+> P/Invoke mismatch (root cause of a blank host frame), `PositionSocket()`
+> running before WPF layout committed, a target-resize-on-every-call
+> regression (reverted in favor of resizing the host frame once at attach
+> time), an `AttachThreadInput`/`SetFocus` experiment that regressed host
+> sizing (reverted to `SetForegroundWindow`-only per §8 step 7), and a
+> drag/resize-ghosting issue on the target's own native chrome (fixed by
+> stripping `WS_CAPTION`/`WS_THICKFRAME`/`WS_MINIMIZEBOX`/`WS_MAXIMIZEBOX`/
+> `WS_SYSMENU` from the target in `Reparent()` — see the comment in
+> `ReparentEngine.Reparent` for full rationale; this is a deliberate,
+> confirmed-working deviation from §8's literal "only OR in `WS_CHILD`"
+> wording). A follow-up bug (resizing the host frame didn't resize the
+> embedded target, causing painting artifacts) was found and fixed:
+> `PositionSocket()` now conditionally resizes the target (debounced ~80ms)
+> only when the socket's size actually changed, leaving mere repositions as
+> `SWP_NOSIZE`-only as before. Modern Windows 11 (WinUI3/DirectComposition)
+> Notepad remains a known, accepted app-compatibility limitation (not a bug)
+> — see `docs/KNOWN_OPEN_FINDINGS.md`. **What this slice does NOT yet
+> cover** (remaining Phase 1 scope, still open): the real ancestor-chain
+> picker UI (yellow-box stack, adaptive positioning), the separate
+> `PickerOverlay` class, restore-to-original-parent for child-HWND picks,
+> conditional resizability + the "allow resizing reparented child elements"
+> setting, the in-memory tracking list + state machine, "Reset
+> Reparenting", elevation mismatch detection, the full `SetWinEventHook`
+> hook, graceful-shutdown restore, crash recovery, and the Settings section
+> toggles. Proceed with the remaining Phase 1 checklist below.
+
 ### Phase 1 — Full picker + whole/ancestor-element "Pop Out and Reparent," fully hardened
 
 This is intentionally the largest phase: it now includes **everything**

@@ -22,7 +22,7 @@ namespace WindowWorks.App
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         }
 
-        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost)
+        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost, string? windowReparent = null)
         {
             var result = new WindowWorks.App.UI.Services.HotkeyApplyResult();
             bool changed = false;
@@ -34,6 +34,11 @@ namespace WindowWorks.App
             if (!string.IsNullOrWhiteSpace(emergencyReset) && !string.Equals(emergencyReset, _settings.HotkeyEmergencyReset, StringComparison.Ordinal))
             {
                 _settings.HotkeyEmergencyReset = emergencyReset;
+                changed = true;
+            }
+            if (!string.IsNullOrWhiteSpace(windowReparent) && !string.Equals(windowReparent, _settings.HotkeyWindowReparent, StringComparison.Ordinal))
+            {
+                _settings.HotkeyWindowReparent = windowReparent;
                 changed = true;
             }
             // Map transparency params to the existing HotkeyOpacityNudge setting if provided.
@@ -73,11 +78,13 @@ namespace WindowWorks.App
                     _hotkeyManager.HotkeyRegistrationFailed += OnFail;
                     _hotkeyManager.ApplyHotkeySettings(_settings);
                     // If no failure was recorded for a known key, mark it success.
-                    // Known keys: HotkeyCommandPalette, HotkeyEmergencyReset
+                    // Known keys: HotkeyCommandPalette, HotkeyEmergencyReset, HotkeyWindowReparent
                     var kp = _settings.HotkeyCommandPalette ?? string.Empty;
                     var kr = _settings.HotkeyEmergencyReset ?? string.Empty;
+                    var kw = _settings.HotkeyWindowReparent ?? string.Empty;
                     if (!result.Success.ContainsKey(kp) && !string.IsNullOrWhiteSpace(kp)) result.SetSuccess(kp, true, null);
                     if (!result.Success.ContainsKey(kr) && !string.IsNullOrWhiteSpace(kr)) result.SetSuccess(kr, true, null);
+                    if (!result.Success.ContainsKey(kw) && !string.IsNullOrWhiteSpace(kw)) result.SetSuccess(kw, true, null);
                     _hotkeyManager.HotkeyRegistrationFailed -= OnFail;
                 }
                 catch { }

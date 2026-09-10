@@ -23,7 +23,7 @@ namespace WindowWorks.App.UI
 
         private sealed class NoopHotkeyApplyService : WindowWorks.App.UI.Services.IHotkeyApplyService
         {
-            public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost)
+            public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost, string? windowReparent = null)
             {
                 // Return an empty result indicating no failures (no-op host)
                 return new WindowWorks.App.UI.Services.HotkeyApplyResult();

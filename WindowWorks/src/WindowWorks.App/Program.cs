@@ -68,6 +68,7 @@ namespace WindowWorks.App
         private readonly AuditLog _auditLog;
         private readonly Models.AppSettings _settings;
         private readonly ClickThroughManager _clickThroughManager;
+        private readonly ReparentController _reparentController = new();
 
         public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager)
         {
@@ -125,6 +126,15 @@ namespace WindowWorks.App
                             }
                         }
                         catch { }
+                        return;
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(_settings.HotkeyWindowReparent) && HotkeyManager.ParseHotkeyString(_settings.HotkeyWindowReparent, out var pmods, out var pkey))
+                {
+                    if (e.Modifiers == pmods && e.Key == pkey)
+                    {
+                        try { _reparentController.InvokePicker(); } catch { }
                         return;
                     }
                 }

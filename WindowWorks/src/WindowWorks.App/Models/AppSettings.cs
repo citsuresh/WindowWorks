@@ -41,6 +41,10 @@ namespace WindowWorks.App.Models
         public string HotkeyCommandPalette { get; set; } = "Win+`";
         public string HotkeyEmergencyReset { get; set; } = "Ctrl+Alt+R";
 
+        // Window Reparenting feature (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1).
+        // Invokes the (currently naive, placeholder) window picker — see ReparentController.
+        public string HotkeyWindowReparent { get; set; } = "Ctrl+Alt+P";
+
         // NOTE: transparency/topmost gestures are mouse-based by default; no keyboard shortcuts stored here.
         
         // Configurable mouse gestures stored as strings (e.g. "Ctrl+MouseWheel+Up", "Ctrl+Alt+Click")

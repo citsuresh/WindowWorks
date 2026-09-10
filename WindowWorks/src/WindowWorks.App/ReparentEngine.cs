@@ -99,15 +99,30 @@ namespace WindowWorks.App
                 throw new ArgumentException("hostChildHwnd must not be IntPtr.Zero.", nameof(hostChildHwnd));
             }
 
-            if (NativeMethods.SetParent(targetHwnd, hostChildHwnd) == IntPtr.Zero)
+            IntPtr setParentResult = NativeMethods.SetParent(targetHwnd, hostChildHwnd);
+            if (setParentResult == IntPtr.Zero)
             {
+                DebugLog($"Reparent: SetParent(target={targetHwnd}, host={hostChildHwnd}) failed, GetLastError={Marshal.GetLastWin32Error()}");
                 return false;
             }
 
+            // DESIGN CHANGE (per explicit user request, superseding the earlier mouse-hook-based
+            // drag/resize-ghosting fix below): rather than reparenting the target's whole window
+            // (title bar + resize border still present, just made inert), strip its own
+            // WS_CAPTION/WS_THICKFRAME/WS_MINIMIZEBOX/WS_MAXIMIZEBOX/WS_SYSMENU chrome bits
+            // entirely, so only its client-area *content* is reparented — filling the host frame's
+            // socket with no native title bar/border at all. Only the host frame's own chrome
+            // controls move/resize going forward. This mirrors the plan's own §6.5/§8-cited
+            // PowerToys crop-mode precedent of stripping WS_THICKFRAME/WS_MAXIMIZEBOX, just applied
+            // unconditionally to whole-window reparenting too (not only crop mode), and makes the
+            // previous mouse-hook workaround for drag/resize ghosting unnecessary — removed below.
             int style = NativeMethods.GetWindowLong(targetHwnd, NativeMethods.GWL_STYLE);
-            NativeMethods.SetWindowLong(targetHwnd, NativeMethods.GWL_STYLE, style | NativeMethods.WS_CHILD);
+            int strippedStyle = (style | NativeMethods.WS_CHILD) &
+                ~(NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME | NativeMethods.WS_MINIMIZEBOX |
+                  NativeMethods.WS_MAXIMIZEBOX | NativeMethods.WS_SYSMENU);
+            NativeMethods.SetWindowLong(targetHwnd, NativeMethods.GWL_STYLE, strippedStyle);
 
-            return NativeMethods.SetWindowPos(
+            bool posOk = NativeMethods.SetWindowPos(
                 targetHwnd,
                 IntPtr.Zero,
                 x,
@@ -115,6 +130,27 @@ namespace WindowWorks.App
                 0,
                 0,
                 NativeMethods.SWP_NOSIZE | NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOZORDER);
+            if (!posOk)
+            {
+                DebugLog($"Reparent: SetWindowPos(target={targetHwnd}, x={x}, y={y}) failed, GetLastError={Marshal.GetLastWin32Error()}");
+            }
+
+            return posOk;
+        }
+
+
+        // Diagnostic logging for failure paths only (appended to a temp file, mirroring
+        // HotkeyManager.DebugLog's pattern) — kept permanently, not just for the original
+        // blank-host-frame investigation, since these are exactly the kind of interop calls that
+        // can fail silently against an incompatible target app in the field.
+        private static void DebugLog(string message)
+        {
+            try
+            {
+                var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "windowworks_reparent_log.txt");
+                System.IO.File.AppendAllText(path, DateTime.UtcNow.ToString("o") + " [ReparentEngine] " + message + Environment.NewLine);
+            }
+            catch { }
         }
 
         /// <summary>
@@ -149,8 +185,16 @@ namespace WindowWorks.App
                 width,
                 height,
                 NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+            if (!posOk)
+            {
+                DebugLog($"RestoreOriginalState: SetWindowPos(target={hwnd}) failed, GetLastError={Marshal.GetLastWin32Error()}");
+            }
 
             bool unparented = NativeMethods.SetParent(hwnd, IntPtr.Zero) != IntPtr.Zero;
+            if (!unparented)
+            {
+                DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, null) failed, GetLastError={Marshal.GetLastWin32Error()}");
+            }
 
             var placement = state.Placement;
             NativeMethods.SetWindowPlacement(hwnd, ref placement);
@@ -171,6 +215,15 @@ namespace WindowWorks.App
             public const int GWL_EXSTYLE = -20;
             public const int GWL_STYLE = -16;
             public const int WS_CHILD = 0x40000000;
+
+            // Chrome bits stripped from the target after reparenting (per explicit user request):
+            // reparent only the target's client-area content, not its own window frame — only the
+            // host frame's chrome should be visible/interactive going forward.
+            public const int WS_CAPTION = 0x00C00000;
+            public const int WS_THICKFRAME = 0x00040000;
+            public const int WS_MINIMIZEBOX = 0x00020000;
+            public const int WS_MAXIMIZEBOX = 0x00010000;
+            public const int WS_SYSMENU = 0x00080000;
 
             public const uint SWP_NOSIZE = 0x0001;
             public const uint SWP_NOMOVE = 0x0002;
@@ -209,12 +262,15 @@ namespace WindowWorks.App
             private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
 
             [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
-            private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+            public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
             public static int GetWindowLong(IntPtr hWnd, int nIndex) => (int)GetWindowLongPtr(hWnd, nIndex).ToInt64();
 
             public static int SetWindowLong(IntPtr hWnd, int nIndex, int newValue) =>
                 (int)SetWindowLongPtr(hWnd, nIndex, new IntPtr(newValue)).ToInt64();
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr GetParent(IntPtr hWnd);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);

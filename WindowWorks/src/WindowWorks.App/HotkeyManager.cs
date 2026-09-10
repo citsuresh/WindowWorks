@@ -133,8 +133,9 @@ namespace WindowWorks.App
         private void HandleHotkeyMessage(int id, HotkeyModifiers mods, Keys key)
         {
             // Handle special registered hotkeys by id when known by convention
-            // id==2 is reserved for Click-Through Reset
-            // id-based special handlers removed for Click-Through Reset to avoid conflicts.
+            // id==0: HotkeyCommandPalette, id==1: HotkeyEmergencyReset, id==2: HotkeyWindowReparent
+            // (Click-Through Reset previously reserved id==2; that hotkey registration was removed
+            // to avoid conflicts, freeing id==2 for the reparent picker hotkey below.)
 
             HotkeyPressed?.Invoke(this, new HotkeyEventArgs(mods, key));
         }
@@ -444,6 +445,24 @@ namespace WindowWorks.App
             {
                 // Default emergency reset hotkey: Ctrl+Shift+R
                 RegisterHotkey(1, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
+            }
+
+            // Window Reparenting picker (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1)
+            if (!string.IsNullOrWhiteSpace(settings.HotkeyWindowReparent))
+            {
+                if (ParseHotkeyString(settings.HotkeyWindowReparent, out var m3, out var k3))
+                {
+                    RegisterHotkey(2, m3, k3);
+                }
+                else
+                {
+                    // Fallback to Ctrl+Alt+P
+                    RegisterHotkey(2, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
+                }
+            }
+            else
+            {
+                RegisterHotkey(2, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
             }
 
             // NOTE: Click-Through Reset hotkey registration removed to avoid conflicts. Use tray menu or Gesture reset instead.
