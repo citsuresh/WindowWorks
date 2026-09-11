@@ -100,3 +100,76 @@ maintained — entries are only added, edited, or removed when explicitly reques
   related, currently-removed `SubclassTarget`/`UnsubclassTarget` mechanism referenced only in old
   log entries, not in current code). Deferred; user chose to log this and move on to conditional
   resizability (Phase 1 item 4) instead of fixing now.
+
+## Crop-overlap warning does not fire for sibling/overlapping crop picks
+
+- **First seen:** 2026-09-11
+- **Last seen:** 2026-09-11
+- **Occurrences:** 1 (reproduced consistently across multiple retries same day)
+- **Description:** `ReparentController.ShowCropOverlapWarningIfNeeded` (implemented to satisfy Section 6.9's
+  sibling-overlap warning requirement) is meant to show an informational MessageBox when the user
+  crops a region that overlaps another already-cropped, still-tracked region of the same top-level
+  window. Live testing (cropping File Explorer's navigation pane, then cropping an overlapping
+  region) confirmed the warning never fires, even after a fix attempt (removing an overly-broad
+  same-HWND exclusion) that was independently code-reviewed and approved twice. Live memory-dump
+  inspection of the running process during a repro confirmed the tracking list correctly held two
+  distinct, genuinely-different HWNDs (SysTreeView32 and CabinetWClass, both children of the
+  same top-level Explorer window per GetAncestor(..., GA_ROOT)), with overlapping stored crop
+  rects - i.e., the data the warning logic depends on all looked correct, yet the warning still did
+  not appear. Diagnostic Debug.WriteLine tracing was added to ShowCropOverlapWarningIfNeeded to
+  pinpoint exactly which branch/condition suppresses it, but the trace output was not successfully
+  captured/reviewed (VS Debug Output pane) before the user decided to defer further investigation.
+- **Analysis:** Root cause not yet determined. Data captured via live dotnet-dump inspection rules
+  out the two most obvious theories (identical HWNDs colliding with _trackingList.IsTracked's
+  pre-check, or non-overlapping rects/different top-level roots) - the stored state looks exactly
+  like a case the fix should handle correctly, so the remaining suspects are: a timing issue (e.g.
+  the crop rect stored for the first entry no longer matches what's visually in the second
+  screenshot by the time the second pick runs), an issue in how/when entries transition out of
+  Active state, or a bug in the diagnostic-untested code path itself that only shows up with the
+  temporary Debug.WriteLine tracing added (not yet confirmed).
+- **Suggested handling (not yet implemented):** User confirmed this is non-critical (the feature is
+  purely informational - a heads-up MessageBox, not a safety/correctness mechanism) and chose to
+  leave it as a known, deferred issue rather than continue debugging now. The temporary
+  Debug.WriteLine diagnostic lines left in ShowCropOverlapWarningIfNeeded should be reviewed via
+  the VS Debug Output pane on a future repro attempt to get the missing ground-truth trace before
+  attempting another fix; consider removing the diagnostic lines if/when this is picked back up and
+  resolved, or leaving them if actively debugging.
+
+## Intermittent blank/black crop-reparent host window (video content)
+
+- **First seen:** 2026-09-11
+- **Last seen:** 2026-09-11
+- **Occurrences:** recurring, ~1-in-2/3 attempts (not a one-off; an earlier session had wrongly
+  downgraded this to "non-reproducible")
+- **Description:** When using Crop and Reparent on a region containing video playback (observed
+  cropping a YouTube video region inside a browser window), the resulting reparented host window
+  sometimes shows completely blank/black content instead of the video, roughly 1 in every 2-3
+  attempts. Two live-inspection attempts this session failed because the user could not keep the
+  reproduced blank window open long enough for live HWND/style/paint state inspection before
+  closing the app.
+- **Analysis:** Not yet diagnosed - no successful live inspection has been captured. Suspected
+  (unconfirmed) to be related to DirectComposition/GPU-compositor surface handling for video
+  content, similar in spirit to (but distinct from) the already-documented modern-Notepad
+  DirectComposition finding above, but this has not been verified.
+- **Suggested handling (not yet implemented):** On next repro, user will keep the blank window,
+  WindowWorks, and the source browser window all open and notify immediately so live HWND/
+  style/paint state can be captured (e.g. via dotnet-dump or direct Win32 inspection) before
+  anything is closed. Tracked in this session's SQL todos table as `crop-blank-window-diagnosis`
+  (pending).
+
+## Transient ~10+ second self-recovering hang after a crop action
+
+- **First seen:** 2026-09-11
+- **Last seen:** 2026-09-11
+- **Occurrences:** 1
+- **Description:** After the confirmed cross-process UIA deadlock was fixed (see the fix
+  described in docs/PROJECT_STATE.md/DESIGN_DECISIONS.md), the user observed one additional
+  transient hang of roughly 10+ seconds following a crop action. Unlike the original deadlock,
+  this one self-recovered on its own without requiring the process to be killed.
+- **Analysis:** Not yet investigated. The self-recovering nature suggests a different (lesser)
+  root cause than the fixed deadlock - possibly a slow-but-non-circular wait, or a different
+  code path entirely - but this is unconfirmed. User explicitly deferred live investigation of
+  this for now.
+- **Suggested handling (not yet implemented):** Revisit when the user is ready to investigate
+  live (e.g. arm the dotnet-dump hang watcher again and reproduce). Tracked in this session's
+  SQL todos table as `residual-hang-10s` (blocked).

@@ -17,12 +17,33 @@ namespace WindowWorks.App.UI
         public IntPtr Hwnd { get; }
         public string Label { get; }
         public bool IsChildHwndPick { get; }
+        public bool IsCropEntry { get; }
+        public uint ProcessId { get; }
+        public DateTime ProcessStartTimeUtc { get; }
+        public string? ClassName { get; }
+        public string? AutomationRuntimeId { get; }
+        public object? CapturedIdentity { get; }
 
-        public PickerAncestorBoxItem(IntPtr hwnd, string label, bool isChildHwndPick)
+        public PickerAncestorBoxItem(
+            IntPtr hwnd,
+            string label,
+            bool isChildHwndPick,
+            bool isCropEntry = false,
+            uint processId = 0,
+            DateTime processStartTimeUtc = default,
+            string? className = null,
+            string? automationRuntimeId = null,
+            object? capturedIdentity = null)
         {
             Hwnd = hwnd;
             Label = label;
             IsChildHwndPick = isChildHwndPick;
+            IsCropEntry = isCropEntry;
+            ProcessId = processId;
+            ProcessStartTimeUtc = processStartTimeUtc;
+            ClassName = className;
+            AutomationRuntimeId = automationRuntimeId;
+            CapturedIdentity = capturedIdentity;
         }
     }
 
@@ -31,8 +52,7 @@ namespace WindowWorks.App.UI
     /// input-owning window (not a full-screen overlay) positioned adaptively near the cursor
     /// (§6.4) — hovering a box re-highlights the corresponding on-screen rect via
     /// <see cref="BoxHovered"/>; clicking a box is the actual confirm/commit gesture via
-    /// <see cref="BoxConfirmed"/>. No "Crop a region instead" entry — crop mode is Phase 2, out of
-    /// scope here.
+    /// <see cref="BoxConfirmed"/>.
     /// </summary>
     public partial class PickerBoxListWindow : Window
     {

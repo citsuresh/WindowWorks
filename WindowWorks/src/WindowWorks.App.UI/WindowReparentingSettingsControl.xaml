@@ -23,6 +23,16 @@
                     (greyed out and unchecked whenever the master toggle is off).
                 </TextBlock>
 
+                <CheckBox x:Name="ChkEnableCropAndReparent" Content="Crop and Reparent" Margin="0,10,0,0"
+                          IsChecked="{Binding EnableCropAndReparent, Mode=TwoWay}"
+                          IsEnabled="{Binding EnableWindowReparenting}" />
+                <TextBlock Margin="20,4,0,0" TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="11">
+                    Allows the picker to offer "Crop a region instead" for starting a new cropped
+                    reparent host. Disabling this only removes that picker entry point --
+                    already-open reparented crop hosts are unaffected. Follows the master toggle
+                    above (greyed out and unchecked whenever the master toggle is off).
+                </TextBlock>
+
                 <Border Margin="20,10,0,0" BorderBrush="#FF3F3F3F" BorderThickness="1,0,0,0" Padding="12,0,0,0">
                     <StackPanel>
                         <CheckBox x:Name="ChkAllowResizingReparentedChildElements" Content="Allow resizing reparented child elements" Margin="0,4,0,0"

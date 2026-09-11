@@ -320,6 +320,7 @@ namespace WindowWorks.App.UI
                 {
                     try { UpdateBindingSource(wr, "ChkEnableWindowReparenting", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
                     try { UpdateBindingSource(wr, "ChkEnablePopOutAndReparent", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                    try { UpdateBindingSource(wr, "ChkEnableCropAndReparent", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
                     try { UpdateBindingSource(wr, "ChkAllowResizingReparentedChildElements", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
                 }
                 // Attempt to populate fields from HighlightSettingsControl if visible

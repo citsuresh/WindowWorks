@@ -26,10 +26,14 @@ namespace WindowWorks.App
         private readonly DispatcherTimer _timer;
         private readonly PickerHighlightWindow _highlight = new();
         private readonly PickerBoxListWindow _boxList = new();
+        private readonly bool _includeCropEntry;
         private readonly uint _ownProcessId;
 
         private NativeMethods.POINT _lastPoint = new() { X = int.MinValue, Y = int.MinValue };
         private IntPtr _lastHoveredHwnd = IntPtr.Zero;
+        private bool _lastHoveredIsChildHwndPick;
+        private AncestorChainEntry? _lastHoveredEntry;
+        private System.Collections.Generic.List<AncestorChainEntry> _lastDiscoveredChain = new();
         private bool _disposed;
 
         /// <summary>
@@ -39,14 +43,21 @@ namespace WindowWorks.App
         public event EventHandler<AncestorChainEntry>? Confirmed;
 
         /// <summary>
+        /// Raised once when the user selects the crop entry appended to the yellow-box stack.
+        /// The entry identifies the currently highlighted ancestor-chain target.
+        /// </summary>
+        public event EventHandler<AncestorChainEntry>? CropRequested;
+
+        /// <summary>
         /// Raised once if the session ends without a pick (Escape, or re-invocation cancel). The
         /// session disposes itself immediately after raising this.
         /// </summary>
         public event EventHandler? Cancelled;
 
-        public WindowPickerSession(uint ownProcessId)
+        public WindowPickerSession(uint ownProcessId, bool includeCropEntry)
         {
             _ownProcessId = ownProcessId;
+            _includeCropEntry = includeCropEntry;
             _boxList.BoxHovered += OnBoxHovered;
             _boxList.BoxConfirmed += OnBoxConfirmed;
 
@@ -107,15 +118,18 @@ namespace WindowWorks.App
                 _lastPoint = pt;
 
                 var chain = AncestorChainWalker.Discover(pt.X, pt.Y, _ownProcessId);
+                _lastDiscoveredChain = chain;
                 if (chain.Count == 0)
                 {
                     _highlight.Hide();
                     _boxList.Hide();
                     _lastHoveredHwnd = IntPtr.Zero;
+                    _lastHoveredIsChildHwndPick = false;
+                    _lastHoveredEntry = null;
                     return;
                 }
 
-                _boxList.SetItems(BuildItems(chain));
+                _boxList.SetItems(BuildItems(chain, _includeCropEntry));
                 if (!_boxList.IsVisible)
                 {
                     _boxList.Show();
@@ -126,6 +140,8 @@ namespace WindowWorks.App
                 if (nearest.Hwnd != _lastHoveredHwnd)
                 {
                     _lastHoveredHwnd = nearest.Hwnd;
+                    _lastHoveredIsChildHwndPick = !nearest.IsTopLevel;
+                    _lastHoveredEntry = nearest;
                     _highlight.ShowAround(nearest.Hwnd);
 
                     // Anchor the box list next to the highlighted window's own bounds rather than
@@ -144,14 +160,30 @@ namespace WindowWorks.App
             }
         }
 
-        private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildItems(System.Collections.Generic.List<AncestorChainEntry> chain)
+        private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildItems(System.Collections.Generic.List<AncestorChainEntry> chain, bool includeCropEntry)
         {
-            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(chain.Count);
+            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(chain.Count + (includeCropEntry ? 1 : 0));
             foreach (var entry in chain)
             {
                 string title = string.IsNullOrWhiteSpace(entry.Title) ? entry.ClassName : entry.Title;
                 string label = entry.IsTopLevel ? title : $"{title} ({entry.ClassName})";
-                items.Add(new PickerAncestorBoxItem(entry.Hwnd, label, isChildHwndPick: !entry.IsTopLevel));
+                items.Add(new PickerAncestorBoxItem(
+                    entry.Hwnd,
+                    label,
+                    isChildHwndPick: !entry.IsTopLevel,
+                    processId: entry.ProcessId,
+                    processStartTimeUtc: entry.ProcessStartTimeUtc,
+                    className: entry.ClassName,
+                    automationRuntimeId: entry.AutomationRuntimeId,
+                    capturedIdentity: entry.CapturedIdentity));
+            }
+            if (includeCropEntry)
+            {
+                items.Add(new PickerAncestorBoxItem(
+                    IntPtr.Zero,
+                    "Crop a region instead",
+                    isChildHwndPick: false,
+                    isCropEntry: true));
             }
             return items;
         }
@@ -162,7 +194,13 @@ namespace WindowWorks.App
             {
                 return;
             }
+            if (item.IsCropEntry)
+            {
+                return;
+            }
             _lastHoveredHwnd = item.Hwnd;
+            _lastHoveredIsChildHwndPick = item.IsChildHwndPick;
+            _lastHoveredEntry = FindDiscoveredEntry(item.Hwnd);
             _highlight.ShowAround(item.Hwnd);
         }
 
@@ -173,11 +211,41 @@ namespace WindowWorks.App
                 return;
             }
 
+            if (item.IsCropEntry)
+            {
+                if (_lastHoveredEntry is null)
+                {
+                    Cancel();
+                    return;
+                }
+
+                var cropEntry = _lastHoveredEntry;
+                Dispose();
+                CropRequested?.Invoke(this, cropEntry);
+                return;
+            }
+
+            var match = new AncestorChainEntry(
+                item.Hwnd,
+                item.ClassName ?? string.Empty,
+                string.Empty,
+                isTopLevel: !item.IsChildHwndPick,
+                item.ProcessId,
+                item.ProcessStartTimeUtc,
+                item.AutomationRuntimeId,
+                item.CapturedIdentity as ReparentEngine.CapturedWindowIdentity
+                    ?? throw new InvalidOperationException("The selected window's captured identity is unavailable."));
+            Dispose();
+            Confirmed?.Invoke(this, match);
+        }
+
+        private AncestorChainEntry ResolveEntry(IntPtr hwnd, bool isChildHwndPick)
+        {
             var chain = AncestorChainWalker.Discover(_lastPoint.X, _lastPoint.Y, _ownProcessId);
             AncestorChainEntry? match = null;
             foreach (var entry in chain)
             {
-                if (entry.Hwnd == item.Hwnd)
+                if (entry.Hwnd == hwnd)
                 {
                     match = entry;
                     break;
@@ -185,10 +253,20 @@ namespace WindowWorks.App
             }
             // Fall back to a synthesized entry if the chain changed between hover and click
             // (target moved/closed mid-confirm) — still honor the click using what we know.
-            match ??= new AncestorChainEntry(item.Hwnd, string.Empty, string.Empty, isTopLevel: !item.IsChildHwndPick);
+            return match ?? throw new InvalidOperationException("The selected window is no longer in the discovered ancestor chain.");
+        }
 
-            Dispose();
-            Confirmed?.Invoke(this, match);
+        private AncestorChainEntry? FindDiscoveredEntry(IntPtr hwnd)
+        {
+            foreach (var entry in _lastDiscoveredChain)
+            {
+                if (entry.Hwnd == hwnd)
+                {
+                    return entry;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -54,10 +54,17 @@ namespace WindowWorks.App.Models
         public bool EnableWindowReparenting { get; set; } = true;
 
         // Window Reparenting: "Pop Out and Reparent" sub-toggle — the whole-window/ancestor-
-        // element reparent action (§6, §9). Default ON. "Crop and Reparent" is a second,
-        // independent sub-toggle per §9, but crop mode itself is Phase 2 scope (not yet
-        // implemented), so its toggle is intentionally not added until that phase.
+        // element reparent action (§6, §9). Default ON.
         public bool EnablePopOutAndReparent { get; set; } = true;
+
+        /// <summary>
+        /// Window Reparenting: "Crop and Reparent" sub-toggle — the crop-region reparent action
+        /// (§9). Default ON. Independent from <see cref="EnablePopOutAndReparent"/>: turning this
+        /// off only removes the entry point for starting a NEW crop from the picker; it does NOT
+        /// affect any already-open reparented crop host, since undo/restore paths must never be
+        /// disableable.
+        /// </summary>
+        public bool EnableCropAndReparent { get; set; } = true;
 
         // Window Reparenting: "Allow resizing reparented child elements" (§9, §6.5 three-way
         // fixed-size finding). Off by default — an ancestor-chain child-HWND pick (not the whole

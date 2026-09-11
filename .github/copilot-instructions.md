@@ -9,6 +9,40 @@
 - Manual commit review before any commit.
 - Build/test verification after every change.
 - Do not commit or push automatically — wait for explicit user confirmation first.
+- **Sub-agent delegation workflow** (established during the Window Reparenting Phase 2 work;
+  apply to all future sub-agent-delegated implementation work in this project):
+  1. For each independent task/fix, launch a fresh background `general-purpose` sub-agent with
+     full context. Never reuse one agent across unrelated tasks.
+  2. Ask the sub-agent to self-review/critique its own diff before reporting done.
+  3. Independently verify with a separate `code-review` sub-agent against the actual source code
+     (not the implementing agent's report text).
+  4. If manual testing is needed to confirm a fix, wait for the user's explicit confirmation
+     before stopping the implementation agent, so it can be resumed via `write_agent` if an issue
+     is found.
+  5. Only stop an agent (`stop_powershell`) after BOTH: (a) independent review passed, AND
+     (b) the user has confirmed manual testing (or no testing was needed).
+  6. If an issue is found before the agent is stopped, resume the SAME agent via `write_agent`
+     with the findings rather than spawning a new one — it retains full context of its own prior
+     change.
+  7. Once approved and no longer needed, stop the agent to keep the active agent list clean.
+  8. After each item/task is approved, post a percent-complete status report (table format)
+     before moving to the next item.
+  9. Do not stop to ask for confirmation before proceeding to the next item by default — only
+     stop when (a) manual testing is required to confirm something, or (b) a genuine
+     clarification/design decision is needed. Otherwise keep moving autonomously through the
+     task list.
+  10. Parallel sub-agents are unsafe for code-modifying work (race conditions on the shared
+      working tree) — only run multiple agents in parallel if all of them are read-only
+      (`code-review`/`explore`).
+  11. Watch for a known false-positive review pattern: an independent `code-review` sub-agent
+      may flag "touches unrelated files" if it diffs against the entire uncommitted working tree
+      rather than just the current agent's actual new changes — cross-check any such "scope
+      leakage" finding against the implementing agent's own reported file list before treating it
+      as real.
+  12. If the same underlying issue is reported by review 2+ times across attempted fixes for the
+      same change, stop iterating with more agent round-trips — instead get harder evidence
+      directly (e.g. a live `dotnet-dump` capture/inspection of the running process for hangs or
+      hard-to-explain state bugs) before trying again.
 
 <!-- project-memory-management-graph: skill-version=10 -->
 ## Persistent Project Memory

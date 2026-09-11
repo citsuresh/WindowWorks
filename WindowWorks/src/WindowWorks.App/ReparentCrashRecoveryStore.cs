@@ -58,13 +58,16 @@ namespace WindowWorks.App
             public uint OriginalParentProcessId { get; set; }
             public DateTime OriginalParentProcessStartTimeUtc { get; set; }
             public string? OriginalParentClassName { get; set; }
+            public string? OriginalParentAutomationRuntimeId { get; set; }
 
             public uint TargetProcessId { get; set; }
             public DateTime TargetProcessStartTimeUtc { get; set; }
             public string? TargetClassName { get; set; }
+            public string? TargetAutomationRuntimeId { get; set; }
         }
 
         private readonly string _filePath;
+        private readonly Mutex _mutationMutex = new(false, @"Local\WindowWorks.ReparentCrashRecoveryStore");
 
         public ReparentCrashRecoveryStore()
             : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "WindowWorks", "reparented-windows.json"))
@@ -114,9 +117,11 @@ namespace WindowWorks.App
                 OriginalParentProcessId = state.OriginalParentProcessId,
                 OriginalParentProcessStartTimeUtc = state.OriginalParentProcessStartTimeUtc,
                 OriginalParentClassName = state.OriginalParentClassName,
+                OriginalParentAutomationRuntimeId = state.OriginalParentAutomationRuntimeId,
                 TargetProcessId = state.TargetProcessId,
                 TargetProcessStartTimeUtc = state.TargetProcessStartTimeUtc,
-                TargetClassName = state.TargetClassName
+                TargetClassName = state.TargetClassName,
+                TargetAutomationRuntimeId = state.TargetAutomationRuntimeId
             };
         }
 
@@ -142,9 +147,11 @@ namespace WindowWorks.App
                 OriginalParentProcessId = entry.OriginalParentProcessId,
                 OriginalParentProcessStartTimeUtc = entry.OriginalParentProcessStartTimeUtc,
                 OriginalParentClassName = entry.OriginalParentClassName,
+                OriginalParentAutomationRuntimeId = entry.OriginalParentAutomationRuntimeId,
                 TargetProcessId = entry.TargetProcessId,
                 TargetProcessStartTimeUtc = entry.TargetProcessStartTimeUtc,
-                TargetClassName = entry.TargetClassName
+                TargetClassName = entry.TargetClassName,
+                TargetAutomationRuntimeId = entry.TargetAutomationRuntimeId
             };
         }
 
@@ -154,12 +161,13 @@ namespace WindowWorks.App
         /// never batched or deferred, per the plan's write-ordering requirement. Must be called
         /// *before* <c>SetParent</c>/style changes are applied to the target (§14 Phase 1 item 10).
         /// </summary>
-        public void AddOrUpdate(IntPtr targetHwnd, ReparentEngine.ReparentedWindowState state)
+        public bool AddOrUpdate(IntPtr targetHwnd, ReparentEngine.ReparentedWindowState state)
         {
-            var entries = LoadRaw();
-            entries.RemoveAll(e => e.TargetHwnd == targetHwnd.ToInt64());
-            entries.Add(ToRecoveryEntry(targetHwnd, state));
-            WriteAtomic(entries);
+            return UpdateAtomically(entries =>
+            {
+                entries.RemoveAll(e => e.TargetHwnd == targetHwnd.ToInt64());
+                entries.Add(ToRecoveryEntry(targetHwnd, state));
+            });
         }
 
         /// <summary>
@@ -168,15 +176,12 @@ namespace WindowWorks.App
         /// completes for that entry (§14 Phase 1 item 10 write-ordering requirement) — removing it
         /// earlier would reopen the crash window the ordering rule exists to close.
         /// </summary>
-        public void Remove(IntPtr targetHwnd)
+        public bool Remove(IntPtr targetHwnd)
         {
-            var entries = LoadRaw();
-            int before = entries.Count;
-            entries.RemoveAll(e => e.TargetHwnd == targetHwnd.ToInt64());
-            if (entries.Count != before)
+            return UpdateAtomically(entries =>
             {
-                WriteAtomic(entries);
-            }
+                entries.RemoveAll(e => e.TargetHwnd == targetHwnd.ToInt64());
+            });
         }
 
         /// <summary>
@@ -184,19 +189,86 @@ namespace WindowWorks.App
         /// doesn't exist yet or fails to parse — a corrupt/missing state file should never block
         /// startup.
         /// </summary>
-        public List<RecoveryEntry> LoadAll() => LoadRaw();
+        public List<RecoveryEntry> LoadAll() => LoadRaw() ?? new List<RecoveryEntry>();
 
         /// <summary>
-        /// Clears the state file (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 item 10: "clear/archive
-        /// the state file after a successful recovery pass"). Called once the recovery pass at
-        /// startup has finished processing every entry it found.
+        /// Serializes a complete recovery pass with every live mutation across WindowWorks
+        /// processes, then atomically writes the callback's retained entries. Holding the mutex
+        /// across the callback prevents a live <see cref="AddOrUpdate"/> from being lost between
+        /// the recovery snapshot and its final rewrite.
         /// </summary>
-        public void Clear()
+        public void ProcessRecoveryEntries(Func<IReadOnlyList<RecoveryEntry>, IReadOnlyList<RecoveryEntry>> process)
         {
-            WriteAtomic(new List<RecoveryEntry>());
+            if (process is null)
+            {
+                throw new ArgumentNullException(nameof(process));
+            }
+
+            ExecuteUnderMutationLock(() =>
+            {
+                var entries = LoadRaw();
+                if (entries is null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[ReparentCrashRecoveryStore] Recovery file could not be read; retaining it without rewrite.");
+                    return;
+                }
+
+                var retainedEntries = process(entries);
+                if (retainedEntries is null)
+                {
+                    throw new InvalidOperationException("Recovery processing must return the entries to retain.");
+                }
+
+                WriteAtomic(new List<RecoveryEntry>(retainedEntries));
+            });
         }
 
-        private List<RecoveryEntry> LoadRaw()
+        private bool UpdateAtomically(Action<List<RecoveryEntry>> update)
+        {
+            bool persisted = false;
+            ExecuteUnderMutationLock(() =>
+            {
+                var entries = LoadRaw();
+                if (entries is null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[ReparentCrashRecoveryStore] Recovery file could not be read; mutation skipped to preserve unresolved state.");
+                    return;
+                }
+
+                update(entries);
+                persisted = WriteAtomic(entries);
+            });
+            return persisted;
+        }
+
+        private void ExecuteUnderMutationLock(Action action)
+        {
+            bool lockHeld = false;
+            try
+            {
+                try
+                {
+                    lockHeld = _mutationMutex.WaitOne();
+                }
+                catch (AbandonedMutexException)
+                {
+                    // The previous owner exited while mutating. We now own the mutex and the
+                    // existing atomic write leaves either the old or complete new file intact.
+                    lockHeld = true;
+                }
+
+                action();
+            }
+            finally
+            {
+                if (lockHeld)
+                {
+                    _mutationMutex.ReleaseMutex();
+                }
+            }
+        }
+
+        private List<RecoveryEntry>? LoadRaw()
         {
             try
             {
@@ -211,13 +283,13 @@ namespace WindowWorks.App
             }
             catch
             {
-                // Corrupt/unreadable state file — treat as "nothing to recover" rather than
-                // blocking startup or throwing. A future write will overwrite it with valid JSON.
-                return new List<RecoveryEntry>();
+                // An unreadable file might contain state for a still-attached target. Preserve it
+                // rather than rewriting it as empty and losing the only recovery record.
+                return null;
             }
         }
 
-        private void WriteAtomic(List<RecoveryEntry> entries)
+        private bool WriteAtomic(List<RecoveryEntry> entries)
         {
             try
             {
@@ -233,10 +305,12 @@ namespace WindowWorks.App
                 {
                     File.Move(tempPath, _filePath);
                 }
+                return true;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ReparentCrashRecoveryStore] WriteAtomic failed: {ex}");
+                return false;
             }
         }
     }

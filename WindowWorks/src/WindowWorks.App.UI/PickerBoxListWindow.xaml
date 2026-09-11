@@ -7,10 +7,26 @@
         <ItemsControl x:Name="BoxList">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border Margin="2" Padding="6,4" CornerRadius="2" Background="#CCFFFF00"
+                    <Border x:Name="BoxBorder" Margin="2" Padding="6,4" CornerRadius="2" Background="#CCFFFF00"
                             MouseEnter="OnBoxMouseEnter" MouseLeftButtonUp="OnBoxClick" Tag="{Binding}">
-                        <TextBlock Text="{Binding Label}" Foreground="Black" FontSize="12" FontWeight="SemiBold" />
+                        <StackPanel Orientation="Horizontal">
+                            <Path x:Name="ReparentIcon" Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center"
+                                  Stretch="Uniform" Stroke="Black" StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Data="M0,10 L10,0 M4,0 L10,0 L10,6" />
+                            <Path x:Name="CropIcon" Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center"
+                                  Stretch="Uniform" Stroke="Black" StrokeThickness="1.6" Visibility="Collapsed"
+                                  Data="M2,0 L2,8 L10,8 M4,2 L12,2 L12,10" />
+                            <TextBlock Text="{Binding Label}" Foreground="Black" FontSize="12" FontWeight="SemiBold" />
+                        </StackPanel>
                     </Border>
+                    <DataTemplate.Triggers>
+                        <DataTrigger Binding="{Binding IsCropEntry}" Value="True">
+                            <Setter TargetName="BoxBorder" Property="Background" Value="#CC33C4FF" />
+                            <Setter TargetName="CropIcon" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="ReparentIcon" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </DataTemplate.Triggers>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>

@@ -14,13 +14,29 @@ namespace WindowWorks.App
         public string ClassName { get; }
         public string Title { get; }
         public bool IsTopLevel { get; }
+        public uint ProcessId { get; }
+        public DateTime ProcessStartTimeUtc { get; }
+        public string? AutomationRuntimeId { get; }
+        public ReparentEngine.CapturedWindowIdentity CapturedIdentity { get; }
 
-        public AncestorChainEntry(IntPtr hwnd, string className, string title, bool isTopLevel)
+        public AncestorChainEntry(
+            IntPtr hwnd,
+            string className,
+            string title,
+            bool isTopLevel,
+            uint processId,
+            DateTime processStartTimeUtc,
+            string? automationRuntimeId,
+            ReparentEngine.CapturedWindowIdentity capturedIdentity)
         {
             Hwnd = hwnd;
             ClassName = className;
             Title = title;
             IsTopLevel = isTopLevel;
+            ProcessId = processId;
+            ProcessStartTimeUtc = processStartTimeUtc;
+            AutomationRuntimeId = automationRuntimeId;
+            CapturedIdentity = capturedIdentity ?? throw new ArgumentNullException(nameof(capturedIdentity));
         }
     }
 
@@ -76,12 +92,33 @@ namespace WindowWorks.App
                     IntPtr root = NativeMethods.GetAncestor(current, NativeMethods.GA_ROOT);
                     bool isTopLevel = root == current;
 
-                    string className = GetClassName(current);
-                    NativeMethods.GetWindowThreadProcessId(current, out uint pid);
+                    if (!ReparentEngine.TryGetWindowIdentity(
+                        current,
+                        out uint pid,
+                        out DateTime processStartTimeUtc,
+                        out string? className,
+                        out string? automationRuntimeId))
+                    {
+                        current = NativeMethods.GetAncestor(current, NativeMethods.GA_PARENT);
+                        continue;
+                    }
                     bool isOwnProcess = excludeProcessId != 0 && pid == excludeProcessId;
                     if (!isOwnProcess)
                     {
-                        result.Add(new AncestorChainEntry(current, className, GetTitle(current), isTopLevel));
+                        result.Add(new AncestorChainEntry(
+                            current,
+                            className ?? string.Empty,
+                            GetTitle(current),
+                            isTopLevel,
+                            pid,
+                            processStartTimeUtc,
+                            automationRuntimeId,
+                            ReparentEngine.CaptureIdentity(
+                                current,
+                                pid,
+                                processStartTimeUtc,
+                                className,
+                                automationRuntimeId)));
                     }
 
                     if (isTopLevel)

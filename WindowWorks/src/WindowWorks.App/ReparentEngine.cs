@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Automation;
 
 namespace WindowWorks.App
 {
@@ -16,6 +19,93 @@ namespace WindowWorks.App
     /// </summary>
     public sealed class ReparentEngine
     {
+        private static readonly object s_capturedIdentityGate = new();
+        private static readonly List<WeakReference<CapturedWindowIdentity>> s_capturedIdentities = new();
+
+        public sealed class CapturedWindowIdentity
+        {
+            internal CapturedWindowIdentity(
+                IntPtr hwnd,
+                uint processId,
+                DateTime processStartTimeUtc,
+                string className,
+                string? automationRuntimeId)
+            {
+                Hwnd = hwnd;
+                ProcessId = processId;
+                ProcessStartTimeUtc = processStartTimeUtc;
+                ClassName = className;
+                AutomationRuntimeId = automationRuntimeId;
+            }
+
+            public IntPtr Hwnd { get; }
+            public uint ProcessId { get; }
+            public DateTime ProcessStartTimeUtc { get; }
+            public string ClassName { get; }
+            public string? AutomationRuntimeId { get; }
+            internal bool IsInvalidated { get; private set; }
+
+            internal void Invalidate() => IsInvalidated = true;
+        }
+
+        /// <summary>
+        /// The target's ownership state after a reparent attempt. Callers must base host-socket
+        /// destruction, tracking, and crash-recovery cleanup on this outcome rather than assuming
+        /// a positioning failure means no mutation occurred.
+        /// </summary>
+        public enum ReparentOutcome
+        {
+            /// <summary>No mutation occurred because the target was blocked or SetParent failed.</summary>
+            NotMutated,
+
+            /// <summary>The target is attached to the host socket and must be tracked/restored.</summary>
+            AttachedToHost,
+
+            /// <summary>
+            /// Final positioning failed, but the target was detached from the host and restored to
+            /// its original parent/style before returning.
+            /// </summary>
+            RollbackSucceeded,
+
+            /// <summary>
+            /// Final positioning failed and the target could not be detached from the host socket.
+            /// It must remain tracked and its recovery record must be retained.
+            /// </summary>
+            RollbackFailedStillAttached,
+
+            /// <summary>
+            /// The target disappeared or was no longer attached to the host socket before rollback.
+            /// The host has no child to retain, and the target must not be changed further.
+            /// </summary>
+            NotAttached
+        }
+
+        /// <summary>
+        /// The target's structural state after a restore attempt. Only <see cref="Restored"/> and
+        /// <see cref="TargetGone"/> permit destruction of the host socket or removal of recovery
+        /// state.
+        /// </summary>
+        public enum RestoreOutcome
+        {
+            /// <summary>The target no longer exists, so it cannot be attached to the socket.</summary>
+            TargetGone,
+
+            /// <summary>The target was proven detached from the host before style restoration.</summary>
+            Restored,
+
+            /// <summary>
+            /// The target could not be proven detached from the host socket. Its host, tracking,
+            /// and recovery state must be retained.
+            /// </summary>
+            FailedStillAttached,
+
+            /// <summary>
+            /// The live target exists but is no longer parented to the expected host socket. It
+            /// must not be modified as it could be an HWND-reused or externally-detached target.
+            /// </summary>
+            NotAttached
+        }
+
         /// <summary>
         /// Saved pre-reparent state for a single target window, produced by
         /// <see cref="SaveOriginalState"/> and consumed by <see cref="RestoreOriginalState"/>.
@@ -27,6 +117,7 @@ namespace WindowWorks.App
             public int Style { get; init; }
             public NativeMethods.WINDOWPLACEMENT Placement { get; init; }
             public NativeMethods.RECT OriginalRect { get; init; }
+            public NativeMethods.RECT LiveRectAtReparent { get; set; }
 
             /// <summary>
             /// True for an ancestor-chain child-HWND pick (§6.5) — the target's original parent
@@ -61,6 +152,12 @@ namespace WindowWorks.App
             public string? OriginalParentClassName { get; init; }
 
             /// <summary>
+            /// The original parent's UI Automation runtime ID at pick time. This is durable across
+            /// WindowWorks restarts and is required before restoring a child into that parent.
+            /// </summary>
+            public string? OriginalParentAutomationRuntimeId { get; init; }
+
+            /// <summary>
             /// The target window's own process ID at pick time (docs/REPARENT_FEATURE_PLAN.md §14
             /// Phase 1 crash recovery) — used, together with
             /// <see cref="TargetProcessStartTimeUtc"/> and <see cref="TargetClassName"/>, to verify
@@ -75,6 +172,12 @@ namespace WindowWorks.App
 
             /// <summary>See <see cref="TargetProcessId"/>.</summary>
             public string? TargetClassName { get; init; }
+
+            /// <summary>See <see cref="TargetProcessId"/>.</summary>
+            public string? TargetAutomationRuntimeId { get; init; }
+
+            internal CapturedWindowIdentity? CapturedIdentity { get; init; }
+            internal CapturedWindowIdentity? OriginalParentCapturedIdentity { get; init; }
         }
 
         /// <summary>
@@ -117,6 +220,8 @@ namespace WindowWorks.App
             uint originalParentPid = 0;
             DateTime originalParentStartTimeUtc = default;
             string? originalParentClassName = null;
+            string? originalParentAutomationRuntimeId = null;
+            CapturedWindowIdentity? originalParentCapturedIdentity = null;
 
             if (isChildHwndPick)
             {
@@ -135,7 +240,24 @@ namespace WindowWorks.App
 
                 if (originalParentHwnd != IntPtr.Zero)
                 {
-                    TryGetWindowIdentity(originalParentHwnd, out originalParentPid, out originalParentStartTimeUtc, out originalParentClassName);
+                    if (TryGetWindowIdentity(
+                        originalParentHwnd,
+                        out originalParentPid,
+                        out originalParentStartTimeUtc,
+                        out originalParentClassName,
+                        out originalParentAutomationRuntimeId))
+                    {
+                        originalParentCapturedIdentity = CaptureIdentity(
+                            originalParentHwnd,
+                            originalParentPid,
+                            originalParentStartTimeUtc,
+                            originalParentClassName,
+                            originalParentAutomationRuntimeId);
+                    }
+                }
+                if (originalParentHwnd == IntPtr.Zero || originalParentCapturedIdentity is null)
+                {
+                    throw new InvalidOperationException("Could not capture the original parent window's identity.");
                 }
             }
 
@@ -143,7 +265,15 @@ namespace WindowWorks.App
             // so a crash-recovery pass on next launch can verify a saved TargetHwnd value hasn't
             // been recycled to an unrelated window before touching it (not needed for the live-
             // session Close/Restore path, where the target is already known-live).
-            TryGetWindowIdentity(targetHwnd, out uint targetPid, out DateTime targetStartTimeUtc, out string? targetClassName);
+            if (!TryGetWindowIdentity(
+                targetHwnd,
+                out uint targetPid,
+                out DateTime targetStartTimeUtc,
+                out string? targetClassName,
+                out string? targetAutomationRuntimeId))
+            {
+                throw new InvalidOperationException("Could not capture the target window's identity.");
+            }
 
             return new ReparentedWindowState
             {
@@ -157,23 +287,104 @@ namespace WindowWorks.App
                 OriginalParentProcessId = originalParentPid,
                 OriginalParentProcessStartTimeUtc = originalParentStartTimeUtc,
                 OriginalParentClassName = originalParentClassName,
+                OriginalParentAutomationRuntimeId = originalParentAutomationRuntimeId,
                 TargetProcessId = targetPid,
                 TargetProcessStartTimeUtc = targetStartTimeUtc,
-                TargetClassName = targetClassName
+                TargetClassName = targetClassName,
+                TargetAutomationRuntimeId = targetAutomationRuntimeId,
+                CapturedIdentity = CaptureIdentity(
+                    targetHwnd,
+                    targetPid,
+                    targetStartTimeUtc,
+                    targetClassName,
+                    targetAutomationRuntimeId),
+                OriginalParentCapturedIdentity = originalParentCapturedIdentity
             };
         }
 
+        internal static CapturedWindowIdentity CaptureIdentity(
+            IntPtr hwnd,
+            uint processId,
+            DateTime processStartTimeUtc,
+            string? className,
+            string? automationRuntimeId)
+        {
+            if (hwnd == IntPtr.Zero ||
+                processId == 0 ||
+                processStartTimeUtc == default ||
+                string.IsNullOrWhiteSpace(className) ||
+                string.IsNullOrWhiteSpace(automationRuntimeId))
+            {
+                throw new ArgumentException("A complete window identity is required.", nameof(className));
+            }
+
+            var identity = new CapturedWindowIdentity(hwnd, processId, processStartTimeUtc, className, automationRuntimeId);
+            lock (s_capturedIdentityGate)
+            {
+                for (int index = s_capturedIdentities.Count - 1; index >= 0; index--)
+                {
+                    if (!s_capturedIdentities[index].TryGetTarget(out _))
+                    {
+                        s_capturedIdentities.RemoveAt(index);
+                    }
+                }
+                s_capturedIdentities.Add(new WeakReference<CapturedWindowIdentity>(identity));
+            }
+            return identity;
+        }
+
+        internal static WindowWorks.App.UI.CapturedIdentitySnapshot? CreateIdentitySnapshot(CapturedWindowIdentity? identity)
+        {
+            if (identity is null)
+            {
+                return null;
+            }
+
+            return new WindowWorks.App.UI.CapturedIdentitySnapshot(
+                identity.Hwnd,
+                identity.ProcessId,
+                identity.ProcessStartTimeUtc,
+                identity.ClassName,
+                identity.AutomationRuntimeId,
+                () => identity.IsInvalidated);
+        }
+
+        internal static void InvalidateCapturedIdentities(IntPtr hwnd)
+        {
+            lock (s_capturedIdentityGate)
+            {
+                for (int index = s_capturedIdentities.Count - 1; index >= 0; index--)
+                {
+                    if (!s_capturedIdentities[index].TryGetTarget(out var identity))
+                    {
+                        s_capturedIdentities.RemoveAt(index);
+                    }
+                    else if (identity.Hwnd == hwnd)
+                    {
+                        identity.Invalidate();
+                    }
+                }
+            }
+        }
+
         /// <summary>
-        /// Reads a window's identity fields (PID, process start time, class name) used for the
+        /// Reads a window's identity fields (PID, process start time, class name, UI Automation
+        /// runtime ID) used for the
         /// HWND-reuse identity-verification protocol (§8 step 8 / §14 crash recovery). Returns
         /// false (leaving out-params at their default) if any of the underlying Win32/process
         /// calls fail — callers should treat that as "identity unknown", not "identity matches".
         /// </summary>
-        private static bool TryGetWindowIdentity(IntPtr hwnd, out uint pid, out DateTime processStartTimeUtc, out string? className)
+        internal static bool TryGetWindowIdentity(
+            IntPtr hwnd,
+            out uint pid,
+            out DateTime processStartTimeUtc,
+            out string? className,
+            out string? automationRuntimeId)
         {
             pid = 0;
             processStartTimeUtc = default;
             className = null;
+            automationRuntimeId = null;
 
             NativeMethods.GetWindowThreadProcessId(hwnd, out pid);
             if (pid == 0)
@@ -198,48 +409,106 @@ namespace WindowWorks.App
 
             var classNameBuffer = new System.Text.StringBuilder(256);
             int len = NativeMethods.GetClassName(hwnd, classNameBuffer, classNameBuffer.Capacity);
-            className = len > 0 ? classNameBuffer.ToString() : null;
+            if (len <= 0)
+            {
+                return false;
+            }
 
-            return true;
+            className = classNameBuffer.ToString();
+            return !string.IsNullOrWhiteSpace(className) &&
+                TryGetAutomationRuntimeId(hwnd, out automationRuntimeId);
+        }
+
+        internal static bool TryGetAutomationRuntimeId(IntPtr hwnd, out string? runtimeId)
+        {
+            runtimeId = null;
+            if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd))
+            {
+                return false;
+            }
+
+            try
+            {
+                AutomationElement? element = AutomationElement.FromHandle(hwnd);
+                int[]? runtimeIdParts = element?.GetRuntimeId();
+                if (runtimeIdParts is null || runtimeIdParts.Length == 0)
+                {
+                    return false;
+                }
+
+                runtimeId = string.Join(
+                    ",",
+                    runtimeIdParts.Select(static value => value.ToString(CultureInfo.InvariantCulture)));
+                return !string.IsNullOrWhiteSpace(runtimeId);
+            }
+            catch (Exception ex)
+            {
+                DebugLog($"TryGetAutomationRuntimeId: failed for hwnd={hwnd}: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>
         /// HWND-reuse identity-verification protocol (§8 step 8 / §14 crash recovery): a bare
         /// <c>IsWindow</c> check is not sufficient because Win32 HWND values are recycled after a
         /// window is destroyed. Verifies the live window at <paramref name="hwnd"/> is still the
-        /// same window originally saved by comparing PID + process start time (primary) and
-        /// window class name (secondary, defense-in-depth). Internal (not private) so the
+        /// same window originally saved by comparing PID + process start time, window class name,
+        /// and UI Automation runtime ID. Internal (not private) so the
         /// crash-recovery pass (a separate class, per §14 Phase 1 item 10) can reuse the exact
         /// same verification logic against a saved <c>TargetHwnd</c>/<c>OriginalParentHwnd</c>
         /// loaded back from disk, instead of duplicating it.
         /// </summary>
-        internal static bool VerifyWindowIdentity(IntPtr hwnd, uint savedPid, DateTime savedStartTimeUtc, string? savedClassName)
+        internal static bool VerifyWindowIdentity(
+            IntPtr hwnd,
+            uint savedPid,
+            DateTime savedStartTimeUtc,
+            string? savedClassName,
+            string? savedAutomationRuntimeId,
+            CapturedWindowIdentity? capturedIdentity = null)
         {
             if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd))
             {
                 return false;
             }
-
-            if (!TryGetWindowIdentity(hwnd, out uint livePid, out DateTime liveStartTimeUtc, out string? liveClassName))
+            if (string.IsNullOrWhiteSpace(savedAutomationRuntimeId))
+            {
+                return false;
+            }
+            if (capturedIdentity is not null &&
+                (capturedIdentity.IsInvalidated ||
+                 capturedIdentity.Hwnd != hwnd ||
+                 capturedIdentity.ProcessId != savedPid ||
+                 capturedIdentity.ProcessStartTimeUtc != savedStartTimeUtc ||
+                 !string.Equals(capturedIdentity.ClassName, savedClassName, StringComparison.Ordinal) ||
+                 !string.Equals(
+                     capturedIdentity.AutomationRuntimeId,
+                     savedAutomationRuntimeId,
+                     StringComparison.Ordinal)))
             {
                 return false;
             }
 
-            if (livePid != savedPid || liveStartTimeUtc != savedStartTimeUtc)
+            if (!TryGetWindowIdentity(
+                hwnd,
+                out uint livePid,
+                out DateTime liveStartTimeUtc,
+                out string? liveClassName,
+                out string? liveAutomationRuntimeId))
             {
                 return false;
             }
 
-            // Secondary sanity check — a class-name mismatch despite matching PID/start-time is
-            // extremely unlikely (would require simultaneous PID and HWND reuse) but is cheap to
-            // also check, per the plan's defense-in-depth guidance.
-            if (savedClassName is not null && liveClassName is not null &&
-                !string.Equals(savedClassName, liveClassName, StringComparison.Ordinal))
+            if (livePid != savedPid ||
+                liveStartTimeUtc != savedStartTimeUtc ||
+                string.IsNullOrWhiteSpace(savedClassName) ||
+                string.IsNullOrWhiteSpace(liveClassName) ||
+                string.IsNullOrWhiteSpace(liveAutomationRuntimeId))
             {
                 return false;
             }
 
-            return true;
+            return string.Equals(savedClassName, liveClassName, StringComparison.Ordinal) &&
+                string.Equals(savedAutomationRuntimeId, liveAutomationRuntimeId, StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -253,18 +522,22 @@ namespace WindowWorks.App
         /// </summary>
         /// <param name="targetHwnd">The window being reparented.</param>
         /// <param name="hostChildHwnd">The host frame's child "socket" window.</param>
+        /// <param name="originalState">
+        /// State captured before reparenting. Used to roll back if the final positioning step
+        /// fails after <c>SetParent</c> has already changed the target.
+        /// </param>
         /// <param name="x">
         /// X offset within the host's client area. 0 for whole-window mode (Phase 0/1); the
         /// negative crop-rect origin in crop mode (Phase 2 — not used here).
         /// </param>
         /// <param name="y">Y offset within the host's client area. See <paramref name="x"/>.</param>
-        /// <returns>
-        /// True if the final <c>SetWindowPos</c> call succeeded. A false return means the target
-        /// app may not tolerate reparenting well (§8 step 6), or that an elevation mismatch
-        /// blocked the operation before it was attempted (see <see cref="IsElevationMismatch"/>)
-        /// — callers should surface this via an inline notice, not attempt to silently proceed.
-        /// </returns>
-        public bool Reparent(IntPtr targetHwnd, IntPtr hostChildHwnd, int x = 0, int y = 0)
+        /// <returns>The target's explicit final attachment outcome.</returns>
+        public ReparentOutcome Reparent(
+            IntPtr targetHwnd,
+            IntPtr hostChildHwnd,
+            ReparentedWindowState originalState,
+            int x = 0,
+            int y = 0)
         {
             if (targetHwnd == IntPtr.Zero)
             {
@@ -274,18 +547,36 @@ namespace WindowWorks.App
             {
                 throw new ArgumentException("hostChildHwnd must not be IntPtr.Zero.", nameof(hostChildHwnd));
             }
+            if (originalState is null)
+            {
+                throw new ArgumentNullException(nameof(originalState));
+            }
+            if (originalState.TargetHwnd != targetHwnd)
+            {
+                throw new ArgumentException("originalState must belong to targetHwnd.", nameof(originalState));
+            }
+            if (!VerifyWindowIdentity(
+                targetHwnd,
+                originalState.TargetProcessId,
+                originalState.TargetProcessStartTimeUtc,
+                originalState.TargetClassName,
+                originalState.TargetAutomationRuntimeId,
+                originalState.CapturedIdentity))
+            {
+                DebugLog($"Reparent: target identity changed before mutation, target={targetHwnd}.");
+                return ReparentOutcome.NotMutated;
+            }
 
             if (IsElevationMismatch(targetHwnd))
             {
                 DebugLog($"Reparent: blocked, target={targetHwnd} is elevated and WindowWorks is not.");
-                return false;
+                return ReparentOutcome.NotMutated;
             }
 
-            IntPtr setParentResult = NativeMethods.SetParent(targetHwnd, hostChildHwnd);
-            if (setParentResult == IntPtr.Zero)
+            if (!TrySetParent(targetHwnd, hostChildHwnd, out int setParentError))
             {
-                DebugLog($"Reparent: SetParent(target={targetHwnd}, host={hostChildHwnd}) failed, GetLastError={Marshal.GetLastWin32Error()}");
-                return false;
+                DebugLog($"Reparent: SetParent(target={targetHwnd}, host={hostChildHwnd}) failed, GetLastError={setParentError}");
+                return ReparentOutcome.NotMutated;
             }
 
             // DESIGN CHANGE (per explicit user request, superseding the earlier mouse-hook-based
@@ -315,9 +606,91 @@ namespace WindowWorks.App
             if (!posOk)
             {
                 DebugLog($"Reparent: SetWindowPos(target={targetHwnd}, x={x}, y={y}) failed, GetLastError={Marshal.GetLastWin32Error()}");
+
+                // SetParent and the style mutation have already happened. The rollback proves
+                // detachment from this socket through SetParent's own result before restoring
+                // styles, because WS_CHILD changes make later GetParent inference unreliable.
+                if (TryRollbackFailedReparent(originalState, hostChildHwnd, out bool targetStillAttached))
+                {
+                    return ReparentOutcome.RollbackSucceeded;
+                }
+
+                if (!targetStillAttached)
+                {
+                    return ReparentOutcome.NotAttached;
+                }
+
+                DebugLog($"Reparent: rollback after positioning failure left target={targetHwnd} parented to socket={hostChildHwnd}; retaining host ownership for safe recovery.");
+                return ReparentOutcome.RollbackFailedStillAttached;
             }
 
-            return posOk;
+            if (NativeMethods.GetWindowRect(targetHwnd, out var liveRect))
+            {
+                originalState.LiveRectAtReparent = liveRect;
+            }
+
+            return ReparentOutcome.AttachedToHost;
+        }
+
+        private static bool TryRollbackFailedReparent(ReparentedWindowState state, IntPtr expectedHostHwnd, out bool targetStillAttached)
+        {
+            targetStillAttached = NativeMethods.IsWindow(state.TargetHwnd) &&
+                NativeMethods.GetParent(state.TargetHwnd) == expectedHostHwnd;
+            if (!targetStillAttached)
+            {
+                return false;
+            }
+
+            IntPtr restoreParent = IntPtr.Zero;
+            bool restoreAsOriginalChild = false;
+            if (state.IsChildHwndPick &&
+                VerifyWindowIdentity(
+                    state.OriginalParentHwnd,
+                    state.OriginalParentProcessId,
+                    state.OriginalParentProcessStartTimeUtc,
+                    state.OriginalParentClassName,
+                    state.OriginalParentAutomationRuntimeId,
+                    state.OriginalParentCapturedIdentity))
+            {
+                restoreParent = state.OriginalParentHwnd;
+                restoreAsOriginalChild = true;
+            }
+
+            if (!TrySetParent(state.TargetHwnd, restoreParent, out int setParentError))
+            {
+                DebugLog($"Reparent: rollback SetParent(target={state.TargetHwnd}, parent={restoreParent}) failed, GetLastError={setParentError}");
+                targetStillAttached = NativeMethods.IsWindow(state.TargetHwnd) &&
+                    NativeMethods.GetParent(state.TargetHwnd) == expectedHostHwnd;
+                return !targetStillAttached;
+            }
+
+            int width = state.OriginalRect.Right - state.OriginalRect.Left;
+            int height = state.OriginalRect.Bottom - state.OriginalRect.Top;
+            NativeMethods.SetWindowPos(
+                state.TargetHwnd,
+                IntPtr.Zero,
+                state.OriginalRect.Left,
+                state.OriginalRect.Top,
+                width,
+                height,
+                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_FRAMECHANGED);
+
+            var placement = state.Placement;
+            NativeMethods.SetWindowPlacement(state.TargetHwnd, ref placement);
+            NativeMethods.SetWindowLong(state.TargetHwnd, NativeMethods.GWL_EXSTYLE, state.ExStyle);
+            NativeMethods.SetWindowLong(
+                state.TargetHwnd,
+                NativeMethods.GWL_STYLE,
+                restoreAsOriginalChild ? state.Style : state.Style & ~NativeMethods.WS_CHILD);
+            return true;
+        }
+
+        private static bool TrySetParent(IntPtr targetHwnd, IntPtr newParentHwnd, out int lastError)
+        {
+            Marshal.SetLastPInvokeError(0);
+            IntPtr previousParent = NativeMethods.SetParent(targetHwnd, newParentHwnd);
+            lastError = Marshal.GetLastWin32Error();
+            return previousParent != IntPtr.Zero || lastError == 0;
         }
 
         /// <summary>
@@ -443,7 +816,7 @@ namespace WindowWorks.App
         /// real original parent HWND instead (after identity verification), falling back to
         /// top-level if the original parent is no longer valid/recycled.
         /// </summary>
-        public bool RestoreOriginalState(ReparentedWindowState state)
+        public RestoreOutcome RestoreOriginalState(ReparentedWindowState state, IntPtr expectedHostHwnd = default)
         {
             if (state is null)
             {
@@ -453,7 +826,22 @@ namespace WindowWorks.App
             IntPtr hwnd = state.TargetHwnd;
             if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd))
             {
-                return false;
+                return RestoreOutcome.TargetGone;
+            }
+            if (!VerifyWindowIdentity(
+                hwnd,
+                state.TargetProcessId,
+                state.TargetProcessStartTimeUtc,
+                state.TargetClassName,
+                state.TargetAutomationRuntimeId,
+                state.CapturedIdentity))
+            {
+                DebugLog($"RestoreOriginalState: target identity changed before mutation, target={hwnd}.");
+                return RestoreOutcome.FailedStillAttached;
+            }
+            if (expectedHostHwnd != IntPtr.Zero && NativeMethods.GetParent(hwnd) != expectedHostHwnd)
+            {
+                return RestoreOutcome.NotAttached;
             }
 
             int width = state.OriginalRect.Right - state.OriginalRect.Left;
@@ -471,7 +859,8 @@ namespace WindowWorks.App
                 DebugLog($"RestoreOriginalState: SetWindowPos(target={hwnd}) failed, GetLastError={Marshal.GetLastWin32Error()}");
             }
 
-            bool unparented;
+            bool restoreAsOriginalChild = false;
+            IntPtr restoreParent = IntPtr.Zero;
             if (state.IsChildHwndPick)
             {
                 // §8 step 8 correction: a child-HWND pick's original parent was some other
@@ -485,48 +874,82 @@ namespace WindowWorks.App
                     state.OriginalParentHwnd,
                     state.OriginalParentProcessId,
                     state.OriginalParentProcessStartTimeUtc,
-                    state.OriginalParentClassName);
+                    state.OriginalParentClassName,
+                    state.OriginalParentAutomationRuntimeId,
+                    state.OriginalParentCapturedIdentity);
 
-                IntPtr restoreParent = parentValid ? state.OriginalParentHwnd : IntPtr.Zero;
+                restoreParent = parentValid ? state.OriginalParentHwnd : IntPtr.Zero;
+                restoreAsOriginalChild = parentValid;
                 if (!parentValid)
                 {
                     DebugLog($"RestoreOriginalState: original parent={state.OriginalParentHwnd} for target={hwnd} failed identity verification (or is gone); falling back to top-level.");
                 }
 
-                unparented = NativeMethods.SetParent(hwnd, restoreParent) != IntPtr.Zero;
-                if (!unparented)
-                {
-                    DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, parent={restoreParent}) failed, GetLastError={Marshal.GetLastWin32Error()}");
-                }
             }
-            else
+
+            // Prove detachment through the SetParent result before restoring style bits: clearing
+            // WS_CHILD first would make GetParent-based structural checks unreliable.
+            if (!TrySetParent(hwnd, restoreParent, out int setParentError))
             {
-                unparented = NativeMethods.SetParent(hwnd, IntPtr.Zero) != IntPtr.Zero;
-                if (!unparented)
+                DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, parent={restoreParent}) failed, GetLastError={setParentError}");
+                if (!NativeMethods.IsWindow(hwnd))
                 {
-                    DebugLog($"RestoreOriginalState: SetParent(target={hwnd}, null) failed, GetLastError={Marshal.GetLastWin32Error()}");
+                    return RestoreOutcome.TargetGone;
                 }
+                if (expectedHostHwnd != IntPtr.Zero && NativeMethods.GetParent(hwnd) != expectedHostHwnd)
+                {
+                    return RestoreOutcome.NotAttached;
+                }
+                return RestoreOutcome.FailedStillAttached;
             }
 
             var placement = state.Placement;
             NativeMethods.SetWindowPlacement(hwnd, ref placement);
 
             NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE, state.ExStyle);
-            NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_STYLE, state.Style & ~NativeMethods.WS_CHILD);
+            NativeMethods.SetWindowLong(
+                hwnd,
+                NativeMethods.GWL_STYLE,
+                restoreAsOriginalChild ? state.Style : state.Style & ~NativeMethods.WS_CHILD);
 
             int finalExStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
             int finalStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
             bool isEnabled = NativeMethods.IsWindowEnabled(hwnd);
             bool isVisible = NativeMethods.IsWindowVisible(hwnd);
             IntPtr finalParent = NativeMethods.GetParent(hwnd);
-            DebugLog($"RestoreOriginalState: target={hwnd} restored. savedExStyle=0x{state.ExStyle:X8}, finalExStyle=0x{finalExStyle:X8}, savedStyle=0x{state.Style:X8}, finalStyle=0x{finalStyle:X8}, isEnabled={isEnabled}, isVisible={isVisible}, finalParent={finalParent}, unparented={unparented}, posOk={posOk}.");
+            DebugLog($"RestoreOriginalState: target={hwnd} restored. savedExStyle=0x{state.ExStyle:X8}, finalExStyle=0x{finalExStyle:X8}, savedStyle=0x{state.Style:X8}, finalStyle=0x{finalStyle:X8}, isEnabled={isEnabled}, isVisible={isVisible}, finalParent={finalParent}, posOk={posOk}.");
 
-            // The restore is only considered successful if the target was actually made
-            // top-level again (SetParent succeeding is the operation that matters most for
-            // correctness); a failed SetWindowPos is a lesser, non-fatal geometry issue but is
-            // still folded into the result so callers can surface an inline notice (§8 step 6
-            // equivalent) rather than assuming a silent full success.
-            return unparented && posOk;
+            return RestoreOutcome.Restored;
+        }
+
+        public bool IsOriginalState(ReparentedWindowState state)
+        {
+            if (state is null ||
+                !VerifyWindowIdentity(
+                    state.TargetHwnd,
+                    state.TargetProcessId,
+                    state.TargetProcessStartTimeUtc,
+                    state.TargetClassName,
+                    state.TargetAutomationRuntimeId,
+                    state.CapturedIdentity))
+            {
+                return false;
+            }
+
+            bool restoreAsOriginalChild = state.IsChildHwndPick &&
+                VerifyWindowIdentity(
+                    state.OriginalParentHwnd,
+                    state.OriginalParentProcessId,
+                    state.OriginalParentProcessStartTimeUtc,
+                    state.OriginalParentClassName,
+                    state.OriginalParentAutomationRuntimeId,
+                    state.OriginalParentCapturedIdentity);
+            IntPtr expectedParent = restoreAsOriginalChild ? state.OriginalParentHwnd : IntPtr.Zero;
+            int expectedStyle = restoreAsOriginalChild ? state.Style : state.Style & ~NativeMethods.WS_CHILD;
+
+            return NativeMethods.GetParent(state.TargetHwnd) == expectedParent &&
+                NativeMethods.GetWindowLong(state.TargetHwnd, NativeMethods.GWL_EXSTYLE) == state.ExStyle &&
+                NativeMethods.GetWindowLong(state.TargetHwnd, NativeMethods.GWL_STYLE) == expectedStyle;
         }
 
         public static class NativeMethods

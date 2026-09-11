@@ -24,6 +24,12 @@ namespace WindowWorks.App.UI
                 else if (pv.ValueKind == System.Text.Json.JsonValueKind.False) ChkEnablePopOutAndReparent.IsChecked = false;
                 else if (pv.ValueKind == System.Text.Json.JsonValueKind.String) { if (bool.TryParse(pv.GetString(), out var bv)) ChkEnablePopOutAndReparent.IsChecked = bv; }
             }
+            if (d.TryGetValue("EnableCropAndReparent", out var cv))
+            {
+                if (cv.ValueKind == System.Text.Json.JsonValueKind.True) ChkEnableCropAndReparent.IsChecked = true;
+                else if (cv.ValueKind == System.Text.Json.JsonValueKind.False) ChkEnableCropAndReparent.IsChecked = false;
+                else if (cv.ValueKind == System.Text.Json.JsonValueKind.String) { if (bool.TryParse(cv.GetString(), out var bv)) ChkEnableCropAndReparent.IsChecked = bv; }
+            }
             if (d.TryGetValue("AllowResizingReparentedChildElements", out var v))
             {
                 if (v.ValueKind == System.Text.Json.JsonValueKind.True) ChkAllowResizingReparentedChildElements.IsChecked = true;

@@ -155,6 +155,16 @@ namespace WindowWorks.App
 
         private void Tray_ExitRequested(object? sender, EventArgs e)
         {
+            if (!_reparentController.RestoreAll())
+            {
+                MessageBox.Show(
+                    "WindowWorks could not safely restore every reparented window. The app will remain open so you can retry restoring it.",
+                    "Window Reparenting Restore Failed",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
             ExitThread();
         }
 
@@ -197,7 +207,13 @@ namespace WindowWorks.App
                 // app exits normally, so a normal exit never leaves stray reparented windows behind
                 // (crash recovery via a state file is a separate, not-yet-implemented mechanism —
                 // this only covers the graceful/non-crash exit path).
-                try { _reparentController.RestoreAll(); } catch { }
+                // Do not tear down the process-owned sockets while a target may still be attached
+                // to one. Tray_ExitRequested normally prevents reaching disposal in that state;
+                // retain the controller if disposal is invoked through another route.
+                if (!_reparentController.RestoreAll())
+                {
+                    return;
+                }
                 _tray.Dispose();
                 _hotkeyManager.Dispose();
                 _windowManager.Dispose();

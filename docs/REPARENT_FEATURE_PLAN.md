@@ -1917,10 +1917,21 @@ scope, still here):**
       re-verification, not just the live in-session restore path already
       covered by item 16.
 
-### Phase 2 — Crop-and-Reparent mode
+### Phase 2 — Crop-and-Reparent mode — **STATUS: CODE COMPLETE**
 
 This is the second thing you'll manually test, once whole/ancestor-element
 picking (Phase 1) is confirmed solid.
+
+> All items below are implemented and code-reviewed. Crop-rect UI, the
+> "Crop and Reparent" settings sub-toggle, and the fixed-size crop-mode host
+> frame are user-confirmed working (2026-09-11). The crop+sibling-overlap
+> soft warning (§6.9) is implemented but user-confirmed **not firing** in
+> its intended scenario as of 2026-09-11 — root cause not yet found; tracked
+> as non-critical (informational-only) in `docs/KNOWN_OPEN_FINDINGS.md`. An
+> unrelated intermittent blank/black host-window rendering defect for video
+> crop content (also tracked in `docs/KNOWN_OPEN_FINDINGS.md`) remains open
+> as well, but does not block Phase 2 sign-off since it's a rendering
+> app-compat issue rather than a gap in Phase 2's own scope.
 
 - Crop-rect drag UI (§6.5), DPI-aware crop geometry (maximized-window
   handling via monitor work-area rect), "Crop a region instead" box in the

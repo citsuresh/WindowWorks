@@ -23,7 +23,12 @@ namespace WindowWorks.App
         /// failure) — this state exists only to guard against re-entrancy (see
         /// <see cref="ReparentTrackingList"/>), not as a durable/long-lived state.
         /// </summary>
-        Restoring
+        Restoring,
+        /// <summary>
+        /// The target reached a terminal state, but its crash-recovery record could not be
+        /// durably removed. Retain this entry solely to retry that cleanup without restoring again.
+        /// </summary>
+        CleanupPending
     }
 
     /// <summary>
@@ -32,16 +37,22 @@ namespace WindowWorks.App
     /// </summary>
     public sealed class ReparentedWindowEntry
     {
-        public ReparentedWindowEntry(IntPtr targetHwnd, ReparentEngine.ReparentedWindowState savedState, ReparentHostWindow host)
+        public ReparentedWindowEntry(
+            IntPtr targetHwnd,
+            ReparentEngine.ReparentedWindowState savedState,
+            ReparentHostWindow host,
+            CropRectGeometry.NativeMethods.RECT? cropRectScreen = null)
         {
             TargetHwnd = targetHwnd;
             SavedState = savedState ?? throw new ArgumentNullException(nameof(savedState));
             Host = host ?? throw new ArgumentNullException(nameof(host));
+            CropRectScreen = cropRectScreen;
         }
 
         public IntPtr TargetHwnd { get; }
         public ReparentEngine.ReparentedWindowState SavedState { get; }
         public ReparentHostWindow Host { get; }
+        public CropRectGeometry.NativeMethods.RECT? CropRectScreen { get; }
         public ReparentEntryState State { get; set; } = ReparentEntryState.Active;
     }
 

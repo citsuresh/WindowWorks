@@ -214,7 +214,14 @@ namespace WindowWorks.App
                         MessageBoxIcon.Warning);
                     if (result == DialogResult.Yes)
                     {
-                        try { _reparentController.RestoreAll(); } catch { }
+                        if (!_reparentController.RestoreAll())
+                        {
+                            MessageBox.Show(
+                                "WindowWorks could not safely restore every reparented window. The remaining window stays embedded so you can retry.",
+                                "Window Reparenting Restore Failed",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning);
+                        }
                     }
                 }
                 catch { }
@@ -291,7 +298,7 @@ namespace WindowWorks.App
                             // disabled. Never affects already-reparented content (Close/Restore
                             // and Reset Reparenting remain untouched).
                             if (_reparentController is not null &&
-                                (!_settings.EnableWindowReparenting || !_settings.EnablePopOutAndReparent))
+                                (!_settings.EnableWindowReparenting || !_settings.EnablePopOutAndReparent || !_settings.EnableCropAndReparent))
                             {
                                 try { _reparentController.CancelActivePicker(); } catch { }
                             }
