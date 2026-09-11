@@ -53,6 +53,7 @@ namespace WindowWorks.App
         public ReparentEngine.ReparentedWindowState SavedState { get; }
         public ReparentHostWindow Host { get; }
         public CropRectGeometry.NativeMethods.RECT? CropRectScreen { get; }
+        public bool IsOriginalTemporarilyVisible { get; set; }
         public ReparentEntryState State { get; set; } = ReparentEntryState.Active;
     }
 
@@ -113,6 +114,34 @@ namespace WindowWorks.App
             }
 
             _entries.Add(entry);
+        }
+
+        /// <summary>
+        /// Counts currently-tracked child-HWND picks whose saved original parent HWND matches
+        /// <paramref name="parentHwnd"/>. This supports the phased/multi-child reparenting
+        /// model in docs/REPARENT_FEATURE_PLAN.md section 6.8, where multiple distinct children can be
+        /// pulled from the same original parent over time and later UI can query how many are
+        /// currently out.
+        /// </summary>
+        public int CountTrackedChildrenOfParent(IntPtr parentHwnd)
+        {
+            if (parentHwnd == IntPtr.Zero)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            foreach (var entry in _entries)
+            {
+                if (entry.State == ReparentEntryState.Active &&
+                    entry.SavedState.IsChildHwndPick &&
+                    entry.SavedState.OriginalParentHwnd == parentHwnd)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         public void Remove(ReparentedWindowEntry entry)

@@ -7,6 +7,7 @@
     <DockPanel LastChildFill="True">
         <Border DockPanel.Dock="Top" Background="#FF2D2D30" Padding="4">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="ReopenOriginalButton" Content="Open original for more picking" Padding="8,2" Margin="0,0,8,0" Visibility="Collapsed" Click="OnReopenOriginalClick" />
                 <Button x:Name="CloseRestoreButton" Content="Close/Restore" Padding="8,2" Click="OnCloseRestoreClick" />
             </StackPanel>
         </Border>
@@ -16,6 +17,16 @@
             The Border here just reserves layout space; the real socket HWND is positioned/sized
             to match it in code-behind (see PositionSocket()).
         -->
-        <Border x:Name="SocketHost" Background="#FF1E1E1E" />
+        <Grid>
+            <Border x:Name="SocketHost" Background="#FF1E1E1E" />
+            <Border x:Name="OriginalTemporarilyReopenedNotice" Background="#CC1E1E1E" Visibility="Collapsed">
+                <TextBlock Text="Original temporarily reopened for picking"
+                           Foreground="White"
+                           FontSize="14"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextAlignment="Center" />
+            </Border>
+        </Grid>
     </DockPanel>
 </Window>

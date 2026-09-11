@@ -688,36 +688,40 @@ own risk," so users opt in once rather than being interrupted every time.
       PowerToys has no precedent for this branch at all (see the note on
       step 2 above) — this must be designed and tested specifically for
       WindowWorks, not copied from real source.
-      - **New edge case found during this review pass — the original
-        parent being independently reparented while the child is
-        detached:** identity-verification alone (PID/creation-time/class
-        match) confirms `originalParentHwnd` is still the *same window*,
-        but does **not** confirm it is still in its *original state* —
-        specifically, the original parent could itself have since been
-        picked as a **whole-window** target and reparented into a
-        different WindowWorks host frame (e.g. the user detached child A
+      - **Edge case: the original parent being independently reparented
+        while the child is detached** (e.g. the user detached child A
         from window P, then later separately pop-out-reparented window P
-        itself). If child A is then restored via `SetParent(target,
-        originalParentHwnd)`, it becomes a grandchild — a `WS_CHILD` of
-        `originalParentHwnd`, which is itself now a `WS_CHILD` of some
-        other host frame — nested two levels deep, likely still
-        functional (Win32 permits arbitrary `WS_CHILD` nesting depth) but
-        an unexpected, untested topology and a confusing user-visible
-        state (the restored child would appear to have vanished, since
-        it's now only visible if the user also has that other host frame
-        open). **Mitigation: before restoring, additionally check
-        `originalParentHwnd` against WindowWorks' own reparented-windows
-        tracking list** (the same in-memory list used everywhere else in
-        this section) — if `originalParentHwnd` is itself currently a
-        tracked/active reparent target, treat this the same as the
-        already-invalid-parent case above (fall back to
-        `SetParent(target, nullptr)`, making the restored child top-level
-        instead of silently nesting it inside another host frame), and
-        surface an inline notice explaining why (e.g. "The original
-        window for this element has itself been reparented elsewhere; it
-        was restored as a standalone window instead."). This is a cheap
-        check (one lookup against an already-in-memory list) and avoids
-        an untested, confusing nested-reparent topology.
+        itself into a different WindowWorks host frame, then restores
+        child A). A prior draft of this plan assumed this required a
+        mitigation forcing child A to restore as standalone/top-level
+        (checking `originalParentHwnd` against WindowWorks' tracking
+        list and treating a "yes, tracked elsewhere" result the same as
+        an invalid parent). **Correction (Phase 3, confirmed by manual
+        testing of exactly this scenario):** that assumption was wrong.
+        Identity-verification (PID/creation-time/class match) is what
+        actually matters, and it already correctly confirms
+        `originalParentHwnd` is still the same, live window — whether
+        that window is *also* currently embedded in another host frame
+        is irrelevant to whether restoring child A into it is safe or
+        correct. `SetParent(target, originalParentHwnd)` correctly makes
+        child A a grandchild of that other host frame (Win32 permits
+        arbitrary `WS_CHILD` nesting depth), renders in the right place
+        immediately, and is carried along automatically if/when that
+        other host frame is later restored to the desktop — this is the
+        *better* outcome, not a hazard to avoid. **Do not check the
+        tracking list here at all** — nesting into a live,
+        identity-valid original parent is always preferred over forcing
+        standalone. Standalone/top-level restore remains correct **only**
+        for the pre-existing, unrelated case just above: the original
+        parent itself fails identity verification (gone/recycled/closed).
+        The one accepted tradeoff of nesting: if that other host frame is
+        ever torn down *abnormally* (crash, or any teardown path that
+        calls `DestroyWindow` on the host's socket without first properly
+        unparenting its children), child A would be destroyed along with
+        it rather than surviving independently — this narrow risk was
+        judged acceptable against the much more common case of a normal,
+        successful restore. See `docs/DESIGN_DECISIONS.md` for the dated
+        entry recording this correction.
    3. `SetWindowPlacement(target, &originalPlacement)` — restore the
       original placement (with `showCmd` forced to `SW_RESTORE` unless the
       original was `SW_SHOWMAXIMIZED`, in which case the maximized state is
@@ -1989,16 +1993,25 @@ via the phased/incremental picking model.
   in-progress pick without side effects; each additionally-picked element
   gets full Phase 1 safety coverage (tracking list entry, crash recovery,
   etc.) automatically since it goes through the same mechanics.
-  - **New test case (found during a later review pass, §8 step 8's
-    nested-reparent mitigation):** pick a native child HWND out of window
-    P (leaving P visible per §6.8), then separately pop-out-reparent
-    window P itself (whole-window) into a different host frame, then
-    Close/Restore the original child pick. Confirm the child is restored
-    as a **standalone top-level window** (not nested inside P's own host
-    frame) and that an inline notice explains why, per §8 step 8's
-    tracking-list-based mitigation — this is the concrete scenario that
-    mitigation exists for, and Phase 3 (multi-element-from-same-source) is
-    the first phase where it becomes reachable.
+  - **Regression test case (found during a later review pass, §8 step 8;
+    corrected during Phase 3 after manual testing disproved the original
+    expected outcome — see §8 step 8's updated text and
+    `docs/DESIGN_DECISIONS.md` for the full correction):** pick a native
+    child HWND out of window P (leaving P visible per §6.8), then
+    separately pop-out-reparent window P itself (whole-window) into a
+    different host frame, then Close/Restore the original child pick.
+    **Confirm the child is restored nested inside P** at P's current
+    location (i.e. `SetParent(child, P)` succeeds, and since P is itself
+    currently embedded in its own host frame, the child ends up a
+    grandchild of that other host frame) — this is the correct outcome
+    given `originalParentHwnd` (P) still passes identity verification.
+    Confirm P itself continues to function normally afterward. This
+    replaces the phase's original expectation (standalone/top-level
+    restore with an inline notice), which manual testing showed was an
+    incorrect assumption baked into the original plan — standalone
+    restore is now reserved only for the case where P itself fails
+    identity verification (gone/recycled), not merely for P being tracked
+    elsewhere.
 
 ### Phase 4 — Robustness/production-readiness hardening
 

@@ -79,3 +79,55 @@
   Drag-repositioning is unaffected since it doesn't depend on resize grips.
 - **Alternatives considered:** Allowing resize with scaled/clipped content (deferred — adds
   meaningful complexity for a v1 feature; not attempted this session).
+
+## 2026 (Phase 3) — Reversed "tracked original parent forces standalone restore" mitigation
+
+- **Decision:** When restoring a child-HWND pick (§8 step 8), always restore into the original
+  parent (`SetParent(target, originalParentHwnd)`) as long as that parent still passes identity
+  verification (`ReparentEngine.VerifyWindowIdentity`) — regardless of whether that parent is
+  itself currently tracked as an active reparent target elsewhere in WindowWorks. The
+  `ShouldRestoreChildPickAsStandalone` method in `ReparentController.cs`, which forced
+  standalone/top-level restore whenever the tracking list contained the original parent (or any
+  ancestor of it), has been removed entirely, along with its call sites in
+  `OpenOriginalForMorePicking`, `RestoreEntry`, and `RunCrashRecoveryPass`. Standalone/top-level
+  restore is now triggered **only** by `ReparentEngine.RestoreOriginalState`'s own pre-existing
+  `parentValid` identity-verification fallback — i.e. only when the original parent is genuinely
+  gone, recycled, or otherwise fails identity verification. As a follow-up cleanup pass, the
+  `ReparentEngine`/`ReparentController`/`ReparentHostWindow` mechanism that supported the removed
+  mitigation (the `forceTopLevelRestore` parameter on `TemporarilyRestoreToOriginalState`/
+  `RestoreOriginalState`, the `RestoreOutcome.RestoredAsStandaloneDueToTrackedOriginalParent` enum
+  value in all three of its declarations, its associated notice message, and the now-orphaned
+  `GA_PARENT` constant in `ReparentController`'s private `NativeMethods`) was deleted entirely
+  rather than left dormant, since unused code/parameters with no live caller were judged more
+  likely to confuse future readers than to save future effort.
+- **Rationale:** This reverses a mitigation added earlier in Phase 3 (Piece 1) for the scenario:
+  pick a native child HWND out of window P (leaving P visible), separately pop-out-reparent
+  window P itself (whole-window) into a different host frame, then restore the original
+  child pick. The original plan assumed nesting the child back into P in this state was unsafe
+  ("confusing", "untested topology") and should be avoided by forcing a standalone restore
+  instead. The user manually tested this exact scenario using File Explorer (picking the
+  navigation pane as the child-HWND target, then the whole Explorer window as a second,
+  separate pick) and found nesting works correctly: the child renders in its normal, fully
+  chromed place inside P, and P's own host frame continues to function normally afterward.
+  Identity-verification (PID/creation-time/class match) is what actually matters for restore
+  safety — it already correctly confirms `originalParentHwnd` is still the *same, live* window;
+  whether that window also happens to be tracked/embedded elsewhere is irrelevant to whether
+  restoring into it is safe. The prior mitigation was also independently found to be buggy in
+  its own terms before this reversal was decided: `OriginalParentHwnd` is only the *immediate*
+  parent, while whole-window entries are tracked by *root* ancestor HWND, so the original
+  single-HWND `IsTracked` check silently never fired for deeply-nested child picks (e.g.
+  Explorer's nav pane) — a walk-up-to-root fix was drafted first, then abandoned once the
+  design goal itself was found to be wrong, in favor of removing the mitigation altogether.
+- **Alternatives considered:** (1) Keep the mitigation but fix its root/immediate-parent
+  ancestor-walk bug (drafted, then discarded once the underlying design goal was itself found to
+  be incorrect, not just its implementation). (2) Leave the now-unused `ReparentEngine`
+  `forceTopLevelRestore` parameter and `RestoredAsStandaloneDueToTrackedOriginalParent` enum
+  value in place as dormant infrastructure for a possible future need — tried first, then
+  reversed on explicit request: dead parameters/enum values with no caller were judged a
+  confusion risk, so they were deleted outright instead. (3) One acknowledged, accepted residual
+  risk of the new behavior: if the other
+  host frame that P ends up nested in is later torn down *abnormally* (crash, or any teardown
+  path that destroys the host's socket without first unparenting its children), the renested
+  child would be destroyed along with it rather than surviving independently as a standalone
+  top-level window — judged an acceptable, narrow tradeoff against the much more common
+  successful-restore case, and not something to code around now.

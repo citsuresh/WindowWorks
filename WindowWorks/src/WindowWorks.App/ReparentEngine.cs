@@ -816,7 +816,16 @@ namespace WindowWorks.App
         /// real original parent HWND instead (after identity verification), falling back to
         /// top-level if the original parent is no longer valid/recycled.
         /// </summary>
-        public RestoreOutcome RestoreOriginalState(ReparentedWindowState state, IntPtr expectedHostHwnd = default)
+        public RestoreOutcome TemporarilyRestoreToOriginalState(
+            ReparentedWindowState state,
+            IntPtr expectedHostHwnd = default)
+        {
+            return RestoreOriginalState(state, expectedHostHwnd);
+        }
+
+        public RestoreOutcome RestoreOriginalState(
+            ReparentedWindowState state,
+            IntPtr expectedHostHwnd = default)
         {
             if (state is null)
             {
@@ -870,6 +879,14 @@ namespace WindowWorks.App
                 // fails, per the plan's explicit guidance (a recovered top-level window the user
                 // can see/deal with manually is strictly better than silently failing or risking
                 // a recycled-HWND hazard).
+                //
+                // Note (Phase 3 design correction, see docs/DESIGN_DECISIONS.md): restoring into a
+                // still-identity-valid original parent is always preferred, even if that parent is
+                // itself currently reparented/tracked elsewhere in WindowWorks — nesting works
+                // correctly (the child rides along with the parent's current fate) and is not a
+                // hazard to defend against. Standalone/top-level restore is therefore reserved
+                // solely for the case below: the original parent itself fails identity
+                // verification (gone, recycled, or otherwise invalid).
                 bool parentValid = VerifyWindowIdentity(
                     state.OriginalParentHwnd,
                     state.OriginalParentProcessId,
@@ -884,7 +901,6 @@ namespace WindowWorks.App
                 {
                     DebugLog($"RestoreOriginalState: original parent={state.OriginalParentHwnd} for target={hwnd} failed identity verification (or is gone); falling back to top-level.");
                 }
-
             }
 
             // Prove detachment through the SetParent result before restoring style bits: clearing
@@ -1029,6 +1045,9 @@ namespace WindowWorks.App
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern bool SetForegroundWindow(IntPtr hWnd);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);

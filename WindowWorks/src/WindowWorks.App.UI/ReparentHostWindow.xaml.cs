@@ -155,7 +155,8 @@ namespace WindowWorks.App.UI
             DateTime targetProcessStartTimeUtc = default,
             string? targetClassName = null,
             string? targetAutomationRuntimeId = null,
-            CapturedIdentitySnapshot? capturedTargetIdentity = null)
+            CapturedIdentitySnapshot? capturedTargetIdentity = null,
+            bool supportsOriginalReopenToggle = false)
         {
             TargetHwnd = targetHwnd;
             _targetOffsetX = targetOffsetX;
@@ -166,6 +167,9 @@ namespace WindowWorks.App.UI
             _targetClassName = targetClassName;
             _targetAutomationRuntimeId = targetAutomationRuntimeId;
             _capturedTargetIdentity = capturedTargetIdentity;
+            _supportsOriginalReopenToggle = supportsOriginalReopenToggle;
+            _isOriginalTemporarilyReopened = false;
+            UpdateOriginalReopenUi();
             EnsureAltF4Hook();
 
             // Reset resize tracking for the newly-attached target: its initial size is established
@@ -238,6 +242,7 @@ namespace WindowWorks.App.UI
         /// proven.
         /// </summary>
         public event EventHandler<RestoreOutcomeEventArgs>? RestoreRequested;
+        public event EventHandler? ReopenOriginalToggleRequested;
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
@@ -270,6 +275,8 @@ namespace WindowWorks.App.UI
 
         private bool _restoreRequestedOnClose;
         private RestoreOutcome _restoreOutcome;
+        private bool _supportsOriginalReopenToggle;
+        private bool _isOriginalTemporarilyReopened;
 
         /// <summary>
         /// Lets a caller that already restored a target itself record its explicit outcome before
@@ -279,6 +286,47 @@ namespace WindowWorks.App.UI
         {
             _restoreRequestedOnClose = true;
             _restoreOutcome = outcome;
+        }
+
+        public void SetOriginalTemporarilyReopened(bool isReopened)
+        {
+            _isOriginalTemporarilyReopened = isReopened;
+            if (!isReopened && !IsTargetAttachedToSocket())
+            {
+                TargetHwnd = IntPtr.Zero;
+            }
+
+            if (isReopened)
+            {
+                // BUG FIX (stale-content report): the caller just detached the target from the
+                // socket (SetParent back to the desktop) so the user can pick again from the
+                // reopened original. The first attempt at this fix redrew the native socket
+                // window itself, but the socket has no background brush (hbrBackground is
+                // IntPtr.Zero in its WNDCLASS) and nothing left to paint once its child is gone —
+                // redrawing it is a no-op. The stale pixels are actually left behind on the WPF
+                // host window's own top-level surface: DWM excluded that screen region while the
+                // native child occupied it, and nothing tells the *host* window to repaint that
+                // region now that the exclusion is gone. Invalidate/redraw the host's own HWND
+                // (not the socket) to force it.
+                IntPtr hostHwnd = _hwndSource?.Handle ?? IntPtr.Zero;
+                if (hostHwnd != IntPtr.Zero)
+                {
+                    NativeMethods.RedrawWindow(
+                        hostHwnd,
+                        IntPtr.Zero,
+                        IntPtr.Zero,
+                        NativeMethods.RDW_INVALIDATE | NativeMethods.RDW_ERASE | NativeMethods.RDW_ALLCHILDREN | NativeMethods.RDW_UPDATENOW);
+                }
+
+                // WPF itself never painted behind the native child (the "airspace" it occupied is
+                // excluded from WPF's own render pass), so nudging only the native HWND isn't
+                // always sufficient once WPF's cached visual layer is composited back in — also
+                // force WPF's own visual tree to re-render the vacated area.
+                InvalidateVisual();
+                SocketHost?.InvalidateVisual();
+            }
+
+            UpdateOriginalReopenUi();
         }
 
         private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -331,6 +379,28 @@ namespace WindowWorks.App.UI
         private void OnCloseRestoreClick(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void OnReopenOriginalClick(object sender, RoutedEventArgs e)
+        {
+            ReopenOriginalToggleRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void UpdateOriginalReopenUi()
+        {
+            if (ReopenOriginalButton is null || OriginalTemporarilyReopenedNotice is null)
+            {
+                return;
+            }
+
+            bool showToggle = _supportsOriginalReopenToggle;
+            ReopenOriginalButton.Visibility = showToggle ? Visibility.Visible : Visibility.Collapsed;
+            ReopenOriginalButton.Content = _isOriginalTemporarilyReopened
+                ? "Hide original again"
+                : "Open original for more picking";
+            OriginalTemporarilyReopenedNotice.Visibility = _isOriginalTemporarilyReopened
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         private void EnsureAltF4Hook()
@@ -867,6 +937,14 @@ namespace WindowWorks.App.UI
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+
+            public const uint RDW_INVALIDATE = 0x0001;
+            public const uint RDW_ERASE = 0x0004;
+            public const uint RDW_ALLCHILDREN = 0x0080;
+            public const uint RDW_UPDATENOW = 0x0100;
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern bool RedrawWindow(IntPtr hWnd, IntPtr lprcUpdate, IntPtr hrgnUpdate, uint flags);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);

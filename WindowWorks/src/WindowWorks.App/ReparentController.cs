@@ -122,6 +122,21 @@ namespace WindowWorks.App
         /// </summary>
         public ReparentTrackingList TrackingList => _trackingList;
 
+        // NOTE (design correction, superseding an earlier §8 step 8 assumption in
+        // docs/REPARENT_FEATURE_PLAN.md): a child-HWND pick's restore target used to be forced
+        // top-level/standalone whenever its original parent was itself currently tracked as a
+        // separate reparent target elsewhere, on the theory that nesting it back into a "live but
+        // tracked" parent was unsafe. Manual testing (child-pick-then-whole-window-pick-then-
+        // restore-child scenario) showed this assumption was wrong in practice: restoring into the
+        // still-valid original parent (even while that parent is itself embedded in another host
+        // frame) works correctly — the child reappears in its normal, fully-chromed place, and the
+        // parent's own later restore correctly carries it along. Standalone/top-level restore is
+        // now reserved for the case the plan always intended for real failures: the original
+        // parent is gone or fails identity verification (handled entirely inside
+        // ReparentEngine.RestoreOriginalState's own parentValid check) — never merely because the
+        // parent happens to also be tracked elsewhere. See docs/DESIGN_DECISIONS.md for the dated
+        // entry recording this correction.
+
         /// <summary>
         /// Invoked when the reparent hotkey is pressed. Starts an interactive ancestor-chain
         /// picker session (§6.1-§6.4) at the current cursor position; re-invoking the hotkey while
@@ -152,6 +167,7 @@ namespace WindowWorks.App
                 {
                     _activeSession = null;
                 }
+
                 OnPicked(entry.Hwnd, isChildHwndPick: !entry.IsTopLevel, expectedIdentity: entry);
             };
             session.CropRequested += (_, entry) =>
@@ -160,6 +176,7 @@ namespace WindowWorks.App
                 {
                     _activeSession = null;
                 }
+
                 StartCropSelection(entry);
             };
             session.Cancelled += (_, _) =>
@@ -168,6 +185,8 @@ namespace WindowWorks.App
                 {
                     _activeSession = null;
                 }
+
+                AutoReembedAllTemporarilyReopenedOriginals();
             };
             session.Start();
         }
@@ -464,7 +483,8 @@ namespace WindowWorks.App
                             targetProcessStartTimeUtc: state.TargetProcessStartTimeUtc,
                             targetClassName: state.TargetClassName,
                             targetAutomationRuntimeId: state.TargetAutomationRuntimeId,
-                            capturedTargetIdentity: ReparentEngine.CreateIdentitySnapshot(state.CapturedIdentity));
+                            capturedTargetIdentity: ReparentEngine.CreateIdentitySnapshot(state.CapturedIdentity),
+                            supportsOriginalReopenToggle: !state.IsChildHwndPick);
                     }
                     else
                     {
@@ -479,7 +499,8 @@ namespace WindowWorks.App
                             targetProcessStartTimeUtc: state.TargetProcessStartTimeUtc,
                             targetClassName: state.TargetClassName,
                             targetAutomationRuntimeId: state.TargetAutomationRuntimeId,
-                            capturedTargetIdentity: ReparentEngine.CreateIdentitySnapshot(state.CapturedIdentity));
+                            capturedTargetIdentity: ReparentEngine.CreateIdentitySnapshot(state.CapturedIdentity),
+                            supportsOriginalReopenToggle: !state.IsChildHwndPick);
                     }
                     entry = new ReparentedWindowEntry(target, state, host, cropRectScreen);
                     _trackingList.Add(entry);
@@ -508,6 +529,16 @@ namespace WindowWorks.App
                     }
                     host.Close();
                 }
+            };
+
+            host.ReopenOriginalToggleRequested += (_, _) =>
+            {
+                if (!reparented || entry is null)
+                {
+                    return;
+                }
+
+                ToggleOriginalForMorePicking(entry);
             };
 
             host.RestoreRequested += (_, args) =>
@@ -663,6 +694,170 @@ namespace WindowWorks.App
                 a.Bottom > b.Top;
         }
 
+        private void ToggleOriginalForMorePicking(ReparentedWindowEntry entry)
+        {
+            if (entry.State != ReparentEntryState.Active)
+            {
+                return;
+            }
+
+            if (entry.IsOriginalTemporarilyVisible)
+            {
+                HideOriginalAgain(entry);
+            }
+            else
+            {
+                OpenOriginalForMorePicking(entry);
+            }
+        }
+
+        private void OpenOriginalForMorePicking(ReparentedWindowEntry entry)
+        {
+            if (entry.State != ReparentEntryState.Active ||
+                !ReferenceEquals(_trackingList.Find(entry.TargetHwnd), entry))
+            {
+                return;
+            }
+
+            var outcome = _engine.TemporarilyRestoreToOriginalState(
+                entry.SavedState,
+                entry.Host.SocketHwnd);
+            if (outcome == ReparentEngine.RestoreOutcome.FailedStillAttached)
+            {
+                System.Windows.MessageBox.Show(
+                    "WindowWorks could not reopen the original window for picking. It remains embedded so it can still be restored normally.",
+                    "Window Reparenting Reopen Failed",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            if (outcome == ReparentEngine.RestoreOutcome.TargetGone)
+            {
+                if (_crashRecoveryStore.Remove(entry.TargetHwnd))
+                {
+                    _trackingList.Remove(entry);
+                }
+                else
+                {
+                    entry.State = ReparentEntryState.CleanupPending;
+                }
+
+                entry.Host.NotifyRestoreAlreadyHandled(RestoreOutcome.TargetGone);
+                entry.Host.Close();
+                return;
+            }
+
+            if (outcome == ReparentEngine.RestoreOutcome.NotAttached)
+            {
+                System.Windows.MessageBox.Show(
+                    "WindowWorks could not reopen the original window because it is no longer attached to this host frame.",
+                    "Window Reparenting Reopen Failed",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            entry.IsOriginalTemporarilyVisible = true;
+            entry.Host.SetOriginalTemporarilyReopened(true);
+            bool foregroundOk = ReparentEngine.NativeMethods.SetForegroundWindow(entry.TargetHwnd);
+            if (!foregroundOk)
+            {
+                Debug.WriteLine($"[Reparent] SetForegroundWindow failed while reopening target=0x{entry.TargetHwnd.ToInt64():X}");
+            }
+        }
+
+        private void HideOriginalAgain(ReparentedWindowEntry entry)
+        {
+            if (!ReparentEngine.VerifyWindowIdentity(
+                entry.TargetHwnd,
+                entry.SavedState.TargetProcessId,
+                entry.SavedState.TargetProcessStartTimeUtc,
+                entry.SavedState.TargetClassName,
+                entry.SavedState.TargetAutomationRuntimeId,
+                entry.SavedState.CapturedIdentity))
+            {
+                System.Windows.MessageBox.Show(
+                    "The original window changed or closed while it was reopened, so WindowWorks could not hide it back into this frame.",
+                    "Window Reparenting Re-embed Failed",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            var outcome = _engine.Reparent(
+                entry.TargetHwnd,
+                entry.Host.SocketHwnd,
+                entry.SavedState,
+                0,
+                0);
+            if (outcome is not ReparentEngine.ReparentOutcome.AttachedToHost and not ReparentEngine.ReparentOutcome.RollbackFailedStillAttached)
+            {
+                System.Windows.MessageBox.Show(
+                    "WindowWorks could not hide the original window back into this frame. It remains open as a normal window.",
+                    "Window Reparenting Re-embed Failed",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Warning);
+                return;
+            }
+
+            int? hostContentWidth = null;
+            int? hostContentHeight = null;
+            var liveRect = entry.SavedState.LiveRectAtReparent;
+            int liveWidth = liveRect.Right - liveRect.Left;
+            int liveHeight = liveRect.Bottom - liveRect.Top;
+            if (liveWidth > 0 && liveHeight > 0)
+            {
+                hostContentWidth = liveWidth;
+                hostContentHeight = liveHeight;
+            }
+
+            entry.Host.AttachTarget(
+                entry.TargetHwnd,
+                hostContentWidth,
+                hostContentHeight,
+                targetProcessId: entry.SavedState.TargetProcessId,
+                targetProcessStartTimeUtc: entry.SavedState.TargetProcessStartTimeUtc,
+                targetClassName: entry.SavedState.TargetClassName,
+                targetAutomationRuntimeId: entry.SavedState.TargetAutomationRuntimeId,
+                capturedTargetIdentity: ReparentEngine.CreateIdentitySnapshot(entry.SavedState.CapturedIdentity),
+                supportsOriginalReopenToggle: !entry.SavedState.IsChildHwndPick);
+            entry.IsOriginalTemporarilyVisible = false;
+            entry.Host.SetOriginalTemporarilyReopened(false);
+        }
+
+        /// <summary>
+        /// Escape-cancel safety net (§6.7 "Safety net"): re-embeds every entry whose original is
+        /// currently temporarily reopened for picking, not just the most recently reopened one —
+        /// §6.6/§6.8 explicitly allow multiple originals to be independently reopened at once (each
+        /// via its own host's toggle), so a single cancelled picker session must not strand any of
+        /// them as top-level windows. Snapshots the entries first since <see cref="HideOriginalAgain"/>
+        /// mutates <see cref="_trackingList"/>-adjacent state as it goes.
+        /// </summary>
+        private void AutoReembedAllTemporarilyReopenedOriginals()
+        {
+            var pending = new List<ReparentedWindowEntry>();
+            foreach (var candidate in _trackingList.Entries)
+            {
+                if (candidate.State == ReparentEntryState.Active && candidate.IsOriginalTemporarilyVisible)
+                {
+                    pending.Add(candidate);
+                }
+            }
+
+            foreach (var candidate in pending)
+            {
+                if (candidate.State != ReparentEntryState.Active ||
+                    !ReferenceEquals(_trackingList.Find(candidate.TargetHwnd), candidate) ||
+                    !candidate.IsOriginalTemporarilyVisible)
+                {
+                    continue;
+                }
+
+                HideOriginalAgain(candidate);
+            }
+        }
+
         /// <summary>
         /// Re-entrancy-safe restore for a single tracking-list entry (§14 Phase 1 item 5): checks
         /// the entry is still present and not already <see cref="ReparentEntryState.Restoring"/>
@@ -706,10 +901,18 @@ namespace WindowWorks.App
             }
 
             entry.State = ReparentEntryState.Restoring;
+            if (entry.IsOriginalTemporarilyVisible)
+            {
+                entry.IsOriginalTemporarilyVisible = false;
+                entry.Host.SetOriginalTemporarilyReopened(false);
+            }
+
             ReparentEngine.RestoreOutcome outcome = ReparentEngine.RestoreOutcome.FailedStillAttached;
             try
             {
-                outcome = _engine.RestoreOriginalState(entry.SavedState, entry.Host.SocketHwnd);
+                outcome = _engine.RestoreOriginalState(
+                    entry.SavedState,
+                    entry.Host.SocketHwnd);
             }
             catch { }
 
@@ -832,7 +1035,7 @@ namespace WindowWorks.App
                                     state.OriginalParentProcessStartTimeUtc,
                                     state.OriginalParentClassName,
                                     state.OriginalParentAutomationRuntimeId);
-                            if (!targetValid || !originalParentValid || _trackingList.IsTracked(state.TargetHwnd))
+                            if (!targetValid || !originalParentValid)
                             {
                                 unresolvedEntries.Add(recoveryEntry);
                                 continue;
