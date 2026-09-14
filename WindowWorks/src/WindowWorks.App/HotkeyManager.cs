@@ -73,6 +73,13 @@ namespace WindowWorks.App
         private System.Threading.SynchronizationContext? _syncContext;
         private readonly Models.AppSettings _settings;
         private readonly System.Collections.Generic.List<int> _registeredHotkeyIds = new();
+        // Tracks the last hotkey string actually applied for each id (0=CommandPalette,
+        // 1=EmergencyReset, 2=WindowReparent), so ApplyHotkeySettings can re-register only the
+        // id(s) whose setting actually changed instead of tearing down and re-claiming every
+        // hotkey on every save -- unregistering an unchanged hotkey and immediately
+        // re-registering it is an unnecessary race that can transiently fail (error 1408) even
+        // though the user never touched that particular shortcut.
+        private readonly System.Collections.Generic.Dictionary<int, string> _appliedHotkeyStrings = new();
 
         // Diagnostic helper: expose whether the low-level mouse hook was installed
         public bool IsMouseHookInstalled => _mouseHook != IntPtr.Zero;
@@ -406,66 +413,68 @@ namespace WindowWorks.App
         public void ApplyHotkeySettings(Models.AppSettings settings)
         {
             if (settings == null) return;
-            // Unregister previous first
-            UnregisterAllHotkeys();
 
-            // Register only the keyboard hotkeys exposed in settings (command palette and reset all)
-            // Command palette
-            if (!string.IsNullOrWhiteSpace(settings.HotkeyCommandPalette))
+            // RegisterHotKey/UnregisterHotKey are thread-affine: they must be called from the
+            // same thread that owns _msgWindow's message queue (the thread that called Start()),
+            // or they silently fail against that window handle. The Settings dialog runs on its
+            // own separate STA thread (see SettingsWindow.ShowDialogModalAsync), so a Save there
+            // was calling straight into RegisterHotKey from the wrong thread -- Windows reported
+            // a spurious "hotkey already in use" error even though nothing else held it, and the
+            // new hotkey only actually took effect after the app restarted and re-applied
+            // settings from its own (correct) thread. Marshal onto the owning thread instead.
+            if (_syncContext != null && System.Threading.SynchronizationContext.Current != _syncContext)
             {
-                if (ParseHotkeyString(settings.HotkeyCommandPalette, out var m1, out var k1))
-                {
-                    RegisterHotkey(0, m1, k1);
-                }
-                else
-                {
-                    // fallback to Win+`
-                    RegisterHotkey(0, HotkeyModifiers.Win, Keys.Oem3);
-                }
-            }
-            else
-            {
-                RegisterHotkey(0, HotkeyModifiers.Win, Keys.Oem3);
+                _syncContext.Send(_ => ApplyHotkeySettingsCore(settings), null);
+                return;
             }
 
-            // Emergency reset
-            if (!string.IsNullOrWhiteSpace(settings.HotkeyEmergencyReset))
-            {
-                if (ParseHotkeyString(settings.HotkeyEmergencyReset, out var m2, out var k2))
-                {
-                    RegisterHotkey(1, m2, k2);
-                }
-                else
-                {
-                    // Fallback to Ctrl+Shift+R (legacy behavior expected by UI)
-                    RegisterHotkey(1, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
-                }
-            }
-            else
-            {
-                // Default emergency reset hotkey: Ctrl+Shift+R
-                RegisterHotkey(1, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
-            }
+            ApplyHotkeySettingsCore(settings);
+        }
 
+        private void ApplyHotkeySettingsCore(Models.AppSettings settings)
+        {
+            ApplyOneHotkey(0, settings.HotkeyCommandPalette, HotkeyModifiers.Win, Keys.Oem3);
+            ApplyOneHotkey(1, settings.HotkeyEmergencyReset, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
             // Window Reparenting picker (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1)
-            if (!string.IsNullOrWhiteSpace(settings.HotkeyWindowReparent))
-            {
-                if (ParseHotkeyString(settings.HotkeyWindowReparent, out var m3, out var k3))
-                {
-                    RegisterHotkey(2, m3, k3);
-                }
-                else
-                {
-                    // Fallback to Ctrl+Alt+P
-                    RegisterHotkey(2, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
-                }
-            }
-            else
-            {
-                RegisterHotkey(2, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
-            }
+            ApplyOneHotkey(2, settings.HotkeyWindowReparent, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
 
             // NOTE: Click-Through Reset hotkey registration removed to avoid conflicts. Use tray menu or Gesture reset instead.
+        }
+
+        /// <summary>
+        /// (Re)registers a single hotkey id only if its configured string actually differs from
+        /// what's currently registered for that id -- see <see cref="_appliedHotkeyStrings"/>.
+        /// This is what lets saving one changed shortcut (e.g. Window Reparenting) leave the
+        /// other, unrelated, already-working hotkeys (Command Palette, Reset All) completely
+        /// untouched instead of unregistering and re-registering everything on every apply.
+        /// </summary>
+        private void ApplyOneHotkey(int id, string? configured, HotkeyModifiers fallbackMods, Keys fallbackKey)
+        {
+            string effective = string.IsNullOrWhiteSpace(configured)
+                ? $"{fallbackMods}+{fallbackKey}"
+                : configured!;
+
+            if (_appliedHotkeyStrings.TryGetValue(id, out var previous) && previous == effective && _registeredHotkeyIds.Contains(id))
+            {
+                // Unchanged since last successful apply -- leave the existing registration alone.
+                return;
+            }
+
+            try { UnregisterHotkey(id); } catch { }
+
+            HotkeyModifiers mods;
+            Keys key;
+            if (!string.IsNullOrWhiteSpace(configured) && ParseHotkeyString(configured, out mods, out key))
+            {
+                // parsed successfully -- mods/key already assigned
+            }
+            else
+            {
+                mods = fallbackMods;
+                key = fallbackKey;
+            }
+            RegisterHotkey(id, mods, key);
+            _appliedHotkeyStrings[id] = effective;
         }
 
         public static bool ParseHotkeyString(string s, out HotkeyModifiers mods, out Keys key)
@@ -505,6 +514,7 @@ namespace WindowWorks.App
         public bool UnregisterHotkey(int id)
         {
             if (_msgWindow == null) return false;
+            _registeredHotkeyIds.Remove(id);
             return NativeMethods.UnregisterHotKey(_msgWindow.Handle, id);
         }
 
