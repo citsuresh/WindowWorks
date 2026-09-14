@@ -14,6 +14,26 @@
 - **Rationale:** Once a user edits a shortcut via Settings → Shortcuts (popup capture), `ShortcutsSettingsViewModel.ToDictionary()` writes the new value into the saved settings dictionary on Save, which `SettingsWindow.BtnSave_Click` persists to `settings.json`. On next load, `Persistence.LoadSettings()` deserializes the saved JSON, so the user's value takes precedence over the hardcoded default. `HotkeyApplyService`/`HotkeyManager` re-register the live hotkey immediately after Save.
 - **Alternatives considered:** None; this is the intended and already-implemented behavior — no code changes were required, only confirmation of the flow.
 
+## 2026-09-14 — Hotkey apply must be selective and thread-marshaled
+
+- **Decision:** `HotkeyManager.ApplyHotkeySettings` no longer unconditionally unregisters and
+  re-registers all three hotkeys (Command Palette, Emergency Reset, Window Reparenting) on every
+  Save. It now tracks the last-applied string per hotkey id (`_appliedHotkeyStrings`) and only
+  touches an id via `ApplyOneHotkey` if its configured value actually changed. The whole apply
+  path is also marshaled onto the `HotkeyManager`'s owning thread's `SynchronizationContext`
+  (`_syncContext.Send(...)`) before any `RegisterHotKey`/`UnregisterHotKey` call.
+- **Rationale:** `RegisterHotKey`/`UnregisterHotKey` are Win32 APIs that are thread-affine to the
+  message-only window's owning thread. `HotkeyManager.Start()` runs on the app's main WinForms
+  thread; the Settings dialog runs on its own separate STA thread
+  (`SettingsWindow.ShowDialogModalAsync`). Calling these APIs directly from the Settings thread
+  silently failed with a spurious "hotkey already in use" error, even for hotkeys nobody else
+  held — and separately, the previous unconditional unregister-all-then-reregister-all pattern
+  could transiently fail an untouched hotkey's re-registration just because the user only meant
+  to change a different one. Both bugs were independently reproduced and fixed.
+- **Alternatives considered:** None seriously considered — both root causes were structural bugs
+  in the existing apply path, not a design tradeoff; the fix restores the originally-intended
+  "only touch what changed, on the right thread" behavior.
+
 ## 2026-09-09 — Hybrid WinForms and WPF desktop UI
 
 - **Decision:** Use a WinForms tray/bootstrap application with a referenced WPF UI project for settings and overlays.
