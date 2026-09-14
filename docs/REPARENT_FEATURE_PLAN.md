@@ -420,7 +420,39 @@ own risk," so users opt in once rather than being interrupted every time.
 
 ### 6.7 Host-frame control strip (replaces PowerToys' native titlebar)
 
-- Instead of PowerToys' always-visible native titlebar on the crop/host
+> **As-built note (Phase 3, finalized):** the design below was implemented
+> largely as planned, with the following finalized specifics: the overlay
+> is a real topmost, layered popup HWND (`WS_EX_LAYERED|WS_EX_TOOLWINDOW`)
+> owned by the host `ReparentHostWindow`, hosting a child `HwndSource` with
+> icon-glyph buttons (not text buttons) for reopen-original, minimize,
+> maximize/restore, and close/restore. Auto-hide/reveal behavior: trigger
+> zone is the top ~20% of the host frame (DPI-correct), idle-hide delay is
+> ~2.5s, with a native (non-WPF-Storyboard) fade+slide animation
+> (~180ms) since raw layered-HWND alpha isn't reliably driven by WPF
+> Storyboards. The overlay does **not** auto-hide while the cursor rests
+> over the overlay itself (only while idle *outside* it) — this required a
+> two-flag fix (`_isCursorOverOverlayClientArea` / `_isCursorOverOverlayContentWindow`,
+> OR'd together) because the overlay's own child `HwndSource` (hosting the
+> buttons) needed independent mouse-tracking arming from the parent overlay
+> HWND. Overlay tint is a dark-amber (`#CC4A3C1E`), not the originally
+> planned neutral/black tint (user preference). The host's native chrome
+> (titlebar/native resize border) has been fully removed
+> (`WindowStyle="None"`, `ResizeMode="NoResize"`) — dragging is now done by
+> forwarding `WM_NCLBUTTONDOWN`/`HTCAPTION` from clicks on the overlay's
+> background (excluding button hits) to the host HWND, and resizing is done
+> via a custom `WM_NCHITTEST` grip-band hit-test (`HitTestCustomResizeGrip`,
+> 8dip edge/corner band) since there is no more native resize border. A
+> `WM_NCCALCSIZE` override (native `GWL_STYLE`/`WS_MAXIMIZE` bit check, not
+> WPF's `WindowState`, since `WM_NCCALCSIZE` always arrives before `WM_SIZE`)
+> makes the entire window count as client area, avoiding a residual native
+> sizing-border sliver. The socket child window (`_socketHwnd`) is inset by
+> the same grip-band thickness on all 4 sides so `WM_NCHITTEST` at the very
+> edges/corners reaches the host's own WndProc instead of being swallowed by
+> the socket. Minimizing via any path (button, taskbar, Win+D) immediately
+> hides the overlay (not just via the idle-hide poll timer) to avoid a
+> briefly-floating overlay popup after minimize.
+>
+> Instead of PowerToys' always-visible native titlebar on the crop/host
   window, use a small **auto-hiding overlay control strip** — a topmost,
   layered sibling window rendered above the embedded content, hidden by
   default and revealed on hover near the top edge (or a corner) of the host

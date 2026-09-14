@@ -143,15 +143,18 @@ namespace WindowWorks.App
         /// a session is already active cancels that session first (§6.1), rather than starting a
         /// second, overlapping one.
         ///
-        /// Settings-gated (§9, §14 Phase 1 item 11): a no-op if either the master "Enable Window
-        /// Reparenting" toggle or the "Pop Out and Reparent" sub-toggle is off (Phase 1 has no
-        /// other picker action besides whole-window/ancestor-chain pop-out, so both must be on).
-        /// This makes the hotkey fully inert rather than merely hiding UI — acceptance-check item
-        /// 5's "disabled path" requires no picker to be invocable at all, not just no stray UI.
+        /// Settings-gated (§9): a no-op if the master "Enable Window Reparenting" toggle is off,
+        /// or if both picker entry-point sub-toggles are off. If either "Pop Out and Reparent"
+        /// or "Crop and Reparent" remains enabled, the picker still opens and offers only the
+        /// still-enabled action(s); it becomes fully inert only when Settings has disabled every
+        /// new-picker path, not merely one of them.
         /// </summary>
         public void InvokePicker()
         {
-            if (!_ownsReparenting || _disposed || !_settings.EnableWindowReparenting || !_settings.EnablePopOutAndReparent)
+            if (!_ownsReparenting
+                || _disposed
+                || !_settings.EnableWindowReparenting
+                || (!_settings.EnablePopOutAndReparent && !_settings.EnableCropAndReparent))
             {
                 return;
             }
@@ -159,7 +162,10 @@ namespace WindowWorks.App
             _activeSession?.Cancel();
             _activeCropSelection?.Close();
 
-            var session = new WindowPickerSession((uint)Environment.ProcessId, _settings.EnableCropAndReparent);
+            var session = new WindowPickerSession(
+                (uint)Environment.ProcessId,
+                _settings.EnablePopOutAndReparent,
+                _settings.EnableCropAndReparent);
             _activeSession = session;
             session.Confirmed += (_, entry) =>
             {

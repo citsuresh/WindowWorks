@@ -15,3 +15,12 @@
       currently available. Pick up once such hardware is available;
       single-monitor DPI awareness is unaffected and proceeds normally in
       the phased plan.
+- [ ] Window Reparenting feature: expose settings for the reparented-window
+      overlay (`ReparentHostWindow.xaml.cs` — the floating minimize/
+      maximize/close/reopen-original button strip). Currently all
+      hardcoded with no Settings UI. Candidates identified but not yet
+      scoped/prioritized: auto-hide delay (currently fixed 2.5s idle,
+      `OverlayIdleHideDelay`), hover trigger zone size (currently top 20%
+      of window height, `OverlayTriggerZoneHeightFraction`), an
+      always-show vs. hover-only toggle, and overlay appearance (background
+      tint/opacity, button size).

@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using System.Runtime.InteropServices;
 
 namespace WindowWorks.App.UI
@@ -60,11 +61,37 @@ namespace WindowWorks.App.UI
         public event EventHandler? Cancelled;
 
         private bool _resolved;
+        private const int VK_ESCAPE = 0x1B;
+
+        /// <summary>
+        /// Polls the physical Escape key state rather than relying solely on WPF's
+        /// <c>KeyDown</c>/focus routing. A window shown as a result of a global hotkey press (as
+        /// this one always is) is not guaranteed real foreground/keyboard focus by Windows, so
+        /// relying only on <c>KeyDown</c> could silently make Escape a no-op — matching the same
+        /// polling approach already used by <see cref="WindowWorks.App.WindowPickerSession"/> for
+        /// exactly this reason.
+        /// </summary>
+        private readonly DispatcherTimer _escapeWatcher;
 
         public CropRectSelectionWindow(IntPtr targetHwnd)
         {
             _targetHwnd = targetHwnd;
             InitializeComponent();
+            _escapeWatcher = new DispatcherTimer(DispatcherPriority.Input)
+            {
+                Interval = TimeSpan.FromMilliseconds(50)
+            };
+            _escapeWatcher.Tick += OnEscapeWatcherTick;
+        }
+
+        private void OnEscapeWatcherTick(object? sender, EventArgs e)
+        {
+            if ((NativeMethods.GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0)
+            {
+                _escapeWatcher.Stop();
+                RaiseCancelledOnce();
+                Close();
+            }
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -110,6 +137,7 @@ namespace WindowWorks.App.UI
 
             Activate();
             Focus();
+            _escapeWatcher.Start();
         }
 
         private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -230,6 +258,7 @@ namespace WindowWorks.App.UI
 
         protected override void OnClosed(EventArgs e)
         {
+            _escapeWatcher.Stop();
             // Safety net: closing via any other path (e.g. Alt+F4) without having raised
             // RectConfirmed must still surface as a cancel, so a caller waiting on this session
             // never hangs with neither event ever firing.
@@ -253,6 +282,9 @@ namespace WindowWorks.App.UI
 
             [DllImport("user32.dll")]
             public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+            [DllImport("user32.dll")]
+            public static extern short GetAsyncKeyState(int vKey);
         }
     }
 }

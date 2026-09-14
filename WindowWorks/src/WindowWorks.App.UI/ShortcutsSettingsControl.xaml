@@ -21,6 +21,12 @@
                     <local:ShortcutPicker x:Name="PickerEmergencyReset" Width="180" Shortcut="{Binding EmergencyReset, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
                     <Button x:Name="BtnEditEmergency" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditEmergencyReset}" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Width="180">Window Reparenting</TextBlock>
+                    <TextBlock x:Name="LblWindowReparentDisplay" Width="203" VerticalAlignment="Center" Text="{Binding WindowReparent, TargetNullValue=''}" />
+                    <local:ShortcutPicker x:Name="PickerWindowReparent" Width="180" Shortcut="{Binding WindowReparent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
+                    <Button x:Name="BtnEditWindowReparent" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditWindowReparent}" />
+                </StackPanel>
             </StackPanel>
         </GroupBox>
 

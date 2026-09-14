@@ -1,5 +1,13 @@
 # Design Decisions
 
+## 2026-09-12 — Native layered overlay window: two hard-won Win32/WPF gotchas
+
+- **Decision:** For the Phase 3 overlay scaffold (`ReparentHostWindow.xaml.cs`, `CreateOwnedOverlay`/`PositionOwnedOverlay`), the overlay's paint color must be set via a real `WNDCLASS.hbrBackground` brush (`CreateSolidBrush`), not via `SetLayeredWindowAttributes`'s `crKey` parameter. Its screen-space geometry (origin/size) must be computed via native `GetClientRect` + `ClientToScreen` on the host window's own HWND, not via WPF's `Window.PointToScreen`/`ActualWidth`/`ActualHeight`.
+- **Rationale:**
+  1. `SetLayeredWindowAttributes`'s `crKey` (color) argument is only honored when the `LWA_COLORKEY` flag is set. With `LWA_ALPHA` alone (used here for a semi-transparent tint, not full transparency), `crKey` is silently ignored for painting purposes — it only affects per-window alpha blending. Passing a "yellow" `crKey` with `LWA_ALPHA` produced a black overlay (default/unpainted `hbrBackground`) despite the color argument looking correct at the call site. The fix was to give the overlay's window class an actual background brush.
+  2. A WPF `Window`'s own `PointToScreen`/`ActualWidth`/`ActualHeight` do not reliably correspond to the window's true native client-area screen rect in all cases relevant to a sibling native HWND's positioning (this was root-caused via the `SetWindowPos`/`GetClientRect`/`ClientToScreen` comparison approach below, after a `PointToScreen`+DPI-scale-based formula appeared internally consistent on static analysis alone but still produced a visible right-edge overhang in live testing). Switching to `GetClientRect` (client-relative pixel rect, always `Left=0,Top=0`) + `ClientToScreen` (exact native mapping for a specific HWND) on the host's own real HWND eliminates any WPF-vs-native coordinate-space ambiguity entirely, and keeps all values in device pixels with no DPI scaling needed.
+- **Alternatives considered:** Kept iterating on `PointToScreen`/DPI-scale formulas across several rounds (fixing a genuine DPI-double-scaling bug first) before concluding the WPF-coordinate approach itself was the wrong tool for native sibling-HWND geometry; switched to native Win32 APIs on the host's own HWND instead once static analysis of the WPF-based formula couldn't explain a live, reproducible symptom.
+
 ## Shortcut settings persistence: hardcoded defaults vs. user overrides
 
 - **Decision:** `AppSettings.HotkeyCommandPalette` / `HotkeyEmergencyReset` (and other gesture defaults) in `WindowWorks.App/Models/AppSettings.cs` are fallback defaults only, used when `settings.json` doesn't yet contain a value (first run or missing key).

@@ -54,17 +54,17 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   Reparenting the real content window and restoring it works fine. Reparenting the Chrome Legacy
   Window pick and then restoring it leaves the browser window's mouse input completely dead
   (clicks/hover do nothing) while keyboard input continues to work. This is a distinct symptom from
-  the already-known "picking Chrome Legacy Window produces a blank reparented frame" limitation —
+  the already-known "picking Chrome Legacy Window produces a blank reparented frame" limitation ï¿½
   this is the *restore* side, not the reparent side, and it corrupts the ordinary top-level browser
   window's usability afterward, not just the reparented view.
 - **Analysis:** `Chrome_RenderWidgetHostHWND` is a Chromium-internal helper window (used for IME/
-  accessibility/input plumbing), not independent UI — its position/z-order relative to the real
+  accessibility/input plumbing), not independent UI ï¿½ its position/z-order relative to the real
   content window is normally managed entirely by Chrome itself. Moving it out via `SetParent`
   (ReparentEngine.Reparent) and back (ReparentEngine.RestoreOriginalState) desyncs Chrome's internal
   expectations for that window, silently breaking mouse hit-testing for the browser while leaving
   keyboard/focus routing (which doesn't depend on this window's z-order/position) intact. Diagnostic
   logging added to `RestoreOriginalState` (final ExStyle/Style/enabled/visible/parent state) did not
-  show any obviously-wrong Win32 style bits — style/parent restoration appears mechanically correct;
+  show any obviously-wrong Win32 style bits ï¿½ style/parent restoration appears mechanically correct;
   the breakage is believed to be in Chrome's own internal window-position tracking for this helper
   HWND, not a WindowWorks-side style/flag bug.
 - **Suggested handling (not yet implemented):** Two options were discussed and left open per user
@@ -72,7 +72,7 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   this one via a generic (non-hardcoded-classname) heuristic, or (b) attempt a best-effort z-order/
   position re-sync (e.g. `SetWindowPos`/`BringWindowToTop`) after restore specifically for this
   case. Neither has been implemented. For now, avoid picking "Chrome Legacy Window" during manual
-  testing/use — pick the real content window instead.
+  testing/use ï¿½ pick the real content window instead.
 
 ## Reparented Chrome/Chromium window's own tab-strip acts as a draggable "title bar," causing paint glitches when dragged
 
@@ -88,7 +88,7 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   even though `Reparent()` already strips `WS_CAPTION`/`WS_THICKFRAME`/etc. real OS chrome bits.
 - **Analysis:** Chrome implements its own custom draggable region in client-area content (via
   `WM_NCHITTEST` returning `HTCAPTION` for its tab-strip area) so the tab strip can be dragged like
-  a title bar even in borderless/frameless window modes — this is an app-level emulation, separate
+  a title bar even in borderless/frameless window modes ï¿½ this is an app-level emulation, separate
   from real `WS_CAPTION` non-client chrome, and is not affected by stripping `WS_CAPTION`/
   `WS_THICKFRAME` in `ReparentEngine.Reparent`. Once reparented (WS_CHILD inside the host's socket),
   dragging this region still triggers Chrome's own move logic (e.g. `WM_SYSCOMMAND`/`SC_MOVE`)
@@ -96,7 +96,7 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   and produces the observed ghosting/paint artifacts.
 - **Suggested handling (not yet implemented):** intercept/suppress `WM_NCHITTEST` HTCAPTION
   responses and/or `WM_SYSCOMMAND`/`SC_MOVE` messages directed at the reparented target (would
-  require subclassing the target's WndProc, which the codebase does not currently do — see the
+  require subclassing the target's WndProc, which the codebase does not currently do ï¿½ see the
   related, currently-removed `SubclassTarget`/`UnsubclassTarget` mechanism referenced only in old
   log entries, not in current code). Deferred; user chose to log this and move on to conditional
   resizability (Phase 1 item 4) instead of fixing now.
@@ -156,6 +156,40 @@ maintained â€” entries are only added, edited, or removed when explicitly reques
   style/paint state can be captured (e.g. via dotnet-dump or direct Win32 inspection) before
   anything is closed. Tracked in this session's SQL todos table as `crop-blank-window-diagnosis`
   (pending).
+
+## Original parent window (modern Explorer) shows stale/leftover pixels after a child pane is reparented away
+
+- **First seen:** 2026-09-14
+- **Last seen:** 2026-09-14
+- **Occurrences:** 1
+- **Description:** When picking a native child HWND out of a window (observed picking modern
+  Windows Explorer's navigation pane and details pane) via the reparenting feature, the child is
+  successfully `SetParent`'d into the WindowWorks host frame, but the ORIGINAL parent window
+  (Explorer's own top-level window) is left showing stale/leftover pixels where the removed
+  panes used to be, instead of repainting to reflect the vacated area. Screenshot evidence
+  confirmed the exact removed panes' last-painted pixels remain visible.
+- **Analysis:** A fix was attempted and applied (adding `RedrawWindow`
+  (`RDW_INVALIDATE|RDW_ERASE|RDW_ALLCHILDREN|RDW_UPDATENOW`) calls on the original parent hwnd
+  at every `SetParent` detach transition in `ReparentEngine.cs`'s `Reparent()`,
+  `TryRollbackFailedReparent()`, and `RestoreOriginalState()`), independently audited (one
+  ordering bug found and fixed: redraw was originally firing before placement/style restoration
+  completed), and confirmed to build cleanly â€” but the user re-tested twice (including after a
+  full rebuild) and the stale pixels persisted with no visible change at all. This is suspected
+  (unconfirmed) to be the same class of issue as the existing "Modern Windows 11 Notepad
+  ... DirectComposition" finding above: modern File Explorer's UI is DirectComposition/XAML-based,
+  not classic GDI, so `RedrawWindow`/`RDW_INVALIDATE` (which only forces classic `WM_PAINT` GDI
+  repainting) may have no effect on DirectComposition-composited surfaces that DWM manages
+  independently of GDI invalidation. Logged as a separate entry rather than merged into the
+  Notepad finding since the affected app, code path (original PARENT after detach, not the
+  reparented TARGET itself), and symptom (stale leftover pixels vs. cascaded duplicate frames)
+  are all different, even though the suspected underlying mechanism may be related.
+- **Suggested handling (not yet implemented):** try forcing an actual geometry change on the
+  original parent (which DWM/the app's own layout engine reliably reacts to, unlike GDI
+  invalidation) instead of/in addition to `RedrawWindow` â€” e.g. toggle the window size by Â±1px
+  and back via `SetWindowPos`, or otherwise force a real `WM_SIZE`/layout pass. Confirm first
+  whether Explorer's window repaints on its own once the user interacts with it (resize/scroll/
+  minimize-restore) to determine whether this is a DWM-composition-stuck state or just needs a
+  nudge â€” this diagnostic question was raised but not yet answered by the user.
 
 ## Transient ~10+ second self-recovering hang after a crop action
 

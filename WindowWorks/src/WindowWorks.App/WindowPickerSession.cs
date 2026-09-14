@@ -26,8 +26,19 @@ namespace WindowWorks.App
         private readonly DispatcherTimer _timer;
         private readonly PickerHighlightWindow _highlight = new();
         private readonly PickerBoxListWindow _boxList = new();
+        private readonly bool _includePopOutPicks;
         private readonly bool _includeCropEntry;
         private readonly uint _ownProcessId;
+
+        /// <summary>
+        /// True when crop is the ONLY enabled entry point ("Pop Out and Reparent" is off, "Crop
+        /// and Reparent" is on). In this mode there is nothing else the picker could ever offer
+        /// (the box list would only ever contain the single "Crop a region" entry, and clicking
+        /// it was an unnecessary extra step), so <see cref="Start"/> skips the hover/box-list loop
+        /// entirely and goes straight into crop-rect selection over the top-level window under the
+        /// cursor at the moment the hotkey was pressed.
+        /// </summary>
+        private readonly bool _cropOnlyMode;
 
         private NativeMethods.POINT _lastPoint = new() { X = int.MinValue, Y = int.MinValue };
         private IntPtr _lastHoveredHwnd = IntPtr.Zero;
@@ -54,10 +65,12 @@ namespace WindowWorks.App
         /// </summary>
         public event EventHandler? Cancelled;
 
-        public WindowPickerSession(uint ownProcessId, bool includeCropEntry)
+        public WindowPickerSession(uint ownProcessId, bool includePopOutPicks, bool includeCropEntry)
         {
             _ownProcessId = ownProcessId;
+            _includePopOutPicks = includePopOutPicks;
             _includeCropEntry = includeCropEntry;
+            _cropOnlyMode = !includePopOutPicks && includeCropEntry;
             _boxList.BoxHovered += OnBoxHovered;
             _boxList.BoxConfirmed += OnBoxConfirmed;
 
@@ -70,6 +83,30 @@ namespace WindowWorks.App
 
         public void Start()
         {
+            if (_cropOnlyMode)
+            {
+                // Crop-only mode (Pop Out off, Crop on) skips the hover/box-list/click sequence
+                // entirely: go straight into crop-rect selection over the top-level window under
+                // the cursor at the moment the hotkey was pressed, so there is no extra "click to
+                // confirm" step before the drag-to-select overlay appears.
+                if (NativeMethods.GetCursorPos(out var pt))
+                {
+                    var chain = AncestorChainWalker.Discover(pt.X, pt.Y, _ownProcessId);
+                    var topLevel = FindTopLevelEntry(chain);
+                    if (topLevel is not null)
+                    {
+                        Dispose();
+                        CropRequested?.Invoke(this, topLevel);
+                        return;
+                    }
+                }
+
+                // No usable window under the cursor at hotkey time — cancel rather than leaving
+                // the caller waiting on a session that will never raise anything.
+                Cancel();
+                return;
+            }
+
             _timer.Start();
         }
 
@@ -119,7 +156,7 @@ namespace WindowWorks.App
 
                 var chain = AncestorChainWalker.Discover(pt.X, pt.Y, _ownProcessId);
                 _lastDiscoveredChain = chain;
-                if (chain.Count == 0)
+                if (chain.Count == 0 || (!_includePopOutPicks && !_includeCropEntry))
                 {
                     _highlight.Hide();
                     _boxList.Hide();
@@ -129,7 +166,7 @@ namespace WindowWorks.App
                     return;
                 }
 
-                _boxList.SetItems(BuildItems(chain, _includeCropEntry));
+                _boxList.SetItems(BuildItems(chain, _includePopOutPicks, _includeCropEntry));
                 if (!_boxList.IsVisible)
                 {
                     _boxList.Show();
@@ -160,28 +197,51 @@ namespace WindowWorks.App
             }
         }
 
-        private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildItems(System.Collections.Generic.List<AncestorChainEntry> chain, bool includeCropEntry)
+        /// <summary>
+        /// Finds the top-level (root) entry in a discovered ancestor chain — used by crop-only
+        /// mode to crop the whole target window regardless of which specific nested control the
+        /// cursor happens to be resting on at hotkey-press time.
+        /// </summary>
+        private static AncestorChainEntry? FindTopLevelEntry(System.Collections.Generic.List<AncestorChainEntry> chain)
         {
-            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(chain.Count + (includeCropEntry ? 1 : 0));
             foreach (var entry in chain)
             {
-                string title = string.IsNullOrWhiteSpace(entry.Title) ? entry.ClassName : entry.Title;
-                string label = entry.IsTopLevel ? title : $"{title} ({entry.ClassName})";
-                items.Add(new PickerAncestorBoxItem(
-                    entry.Hwnd,
-                    label,
-                    isChildHwndPick: !entry.IsTopLevel,
-                    processId: entry.ProcessId,
-                    processStartTimeUtc: entry.ProcessStartTimeUtc,
-                    className: entry.ClassName,
-                    automationRuntimeId: entry.AutomationRuntimeId,
-                    capturedIdentity: entry.CapturedIdentity));
+                if (entry.IsTopLevel)
+                {
+                    return entry;
+                }
+            }
+            return chain.Count > 0 ? chain[^1] : null;
+        }
+
+        private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildItems(
+            System.Collections.Generic.List<AncestorChainEntry> chain,
+            bool includePopOutPicks,
+            bool includeCropEntry)
+        {
+            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>((includePopOutPicks ? chain.Count : 0) + (includeCropEntry ? 1 : 0));
+            if (includePopOutPicks)
+            {
+                foreach (var entry in chain)
+                {
+                    string title = string.IsNullOrWhiteSpace(entry.Title) ? entry.ClassName : entry.Title;
+                    string label = entry.IsTopLevel ? title : $"{title} ({entry.ClassName})";
+                    items.Add(new PickerAncestorBoxItem(
+                        entry.Hwnd,
+                        label,
+                        isChildHwndPick: !entry.IsTopLevel,
+                        processId: entry.ProcessId,
+                        processStartTimeUtc: entry.ProcessStartTimeUtc,
+                        className: entry.ClassName,
+                        automationRuntimeId: entry.AutomationRuntimeId,
+                        capturedIdentity: entry.CapturedIdentity));
+                }
             }
             if (includeCropEntry)
             {
                 items.Add(new PickerAncestorBoxItem(
                     IntPtr.Zero,
-                    "Crop a region instead",
+                    "Crop a region",
                     isChildHwndPick: false,
                     isCropEntry: true));
             }

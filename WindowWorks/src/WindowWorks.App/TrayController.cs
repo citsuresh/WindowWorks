@@ -291,14 +291,13 @@ namespace WindowWorks.App
 
                             try { _persistence.SaveSettings(_settings); } catch { }
 
-                            // §14 Phase 1 item 11 / §9: if the Settings dialog just turned off the
-                            // master "Enable Window Reparenting" toggle or the "Pop Out and
-                            // Reparent" sub-toggle, cancel any picker session that might currently
-                            // be active so it doesn't keep offering an action Settings just
-                            // disabled. Never affects already-reparented content (Close/Restore
-                            // and Reset Reparenting remain untouched).
+                            // §9: if the Settings dialog leaves picker creation fully disabled,
+                            // cancel any currently active picker session. Never affects already-
+                            // reparented content (Close/Restore and Reset Reparenting remain
+                            // untouched).
                             if (_reparentController is not null &&
-                                (!_settings.EnableWindowReparenting || !_settings.EnablePopOutAndReparent || !_settings.EnableCropAndReparent))
+                                (!_settings.EnableWindowReparenting
+                                 || (!_settings.EnablePopOutAndReparent && !_settings.EnableCropAndReparent)))
                             {
                                 try { _reparentController.CancelActivePicker(); } catch { }
                             }

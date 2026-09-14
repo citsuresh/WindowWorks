@@ -434,6 +434,7 @@ namespace WindowWorks.App.UI
                             // Ensure any bindings on the control have been pushed where applicable
                             try { UpdateBindingSource(s, "PickerCommandPalette", System.Windows.Controls.Control.TagProperty); } catch { }
                             try { UpdateBindingSource(s, "PickerEmergencyReset", System.Windows.Controls.Control.TagProperty); } catch { }
+                            try { UpdateBindingSource(s, "PickerWindowReparent", System.Windows.Controls.Control.TagProperty); } catch { }
                             var dict = sVm.ToDictionary();
                             foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
                         }
@@ -443,8 +444,10 @@ namespace WindowWorks.App.UI
                     {
                         var picker1 = s.FindName("PickerCommandPalette") as ShortcutPicker;
                         var picker2 = s.FindName("PickerEmergencyReset") as ShortcutPicker;
+                        var picker3 = s.FindName("PickerWindowReparent") as ShortcutPicker;
                         if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
                         if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
+                        if (picker3 != null) settingsDict["HotkeyWindowReparent"] = picker3.Shortcut;
                     }
                     // Opacity nudge and Toggle Topmost are mouse gestures and are not saved as keyboard shortcuts.
                 }
@@ -586,14 +589,16 @@ namespace WindowWorks.App.UI
                 {
                     string? cp = null;
                     string? er = null;
+                    string? wrHotkey = null;
                     if (settingsDict.TryGetValue("HotkeyCommandPalette", out var cpObj) && cpObj is string cpStr) cp = cpStr;
                     if (settingsDict.TryGetValue("HotkeyEmergencyReset", out var erObj) && erObj is string erStr) er = erStr;
+                    if (settingsDict.TryGetValue("HotkeyWindowReparent", out var wrObj) && wrObj is string wrStr) wrHotkey = wrStr;
                     try
                     {
                         // Only apply hotkey changes if the Shortcuts section was modified to avoid re-registering unchanged hotkeys
                         if (_sections.TryGetValue("Shortcuts", out var shortcutsSection) && shortcutsSection.Dirty)
                         {
-                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null);
+                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null, wrHotkey);
                             // Optionally, UI could surface res to show per-key errors. For now we ignore the result.
                         }
                     }
