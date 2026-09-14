@@ -34,12 +34,17 @@ Visual Studio (recommended for development):
 
 ## Features
 
+![Tray context menu](docs/images/tray-context-menu.png)
+
 - Tray-only app with a NotifyIcon and a compact context menu.
 - Global hotkeys (all configurable in Settings -> Shortcuts): Win+\` opens the command palette
   placeholder; Ctrl+Alt+R triggers Emergency Reset; Ctrl+Alt+P triggers Window Reparenting.
 - Mouse gestures: Ctrl+MouseWheel adjusts opacity; Ctrl+Shift+Click toggles topmost; Ctrl+Alt+Click
   toggles click-through.
 - Transient HUD shown after actions, with an Undo button that reverts the last change.
+
+  ![HUD showing an opacity change with Reset/Undo](docs/images/hud-opacity.png)
+
 - Presets load from an embedded JSON seed and can be applied to the active window.
 - Emergency Reset restores all windows modified by WindowWorks.
 - No admin required; no code injection into other processes.
@@ -49,6 +54,8 @@ Visual Studio (recommended for development):
 Pops a picked window (or a cropped region of one) out of its original parent and re-hosts it in a
 lightweight floating WindowWorks host window, so it can be moved, resized, or kept on top
 independently of its original app.
+
+![Window/element picker overlay with Crop a region option](docs/images/window-picker-overlay.png)
 
 - Two independent modes, toggled in Settings -> Window Reparenting:
   - **Pop Out and Reparent** - pick a whole window (or an ancestor in its window chain) via the
@@ -63,6 +70,7 @@ independently of its original app.
 - The Window Reparenting hotkey is editable in Settings -> Shortcuts, alongside Command Palette
   and Emergency Reset.
 - Escape cancels an in-progress pick or crop-region selection at any time.
+
 
 ## Settings Highlights
 
