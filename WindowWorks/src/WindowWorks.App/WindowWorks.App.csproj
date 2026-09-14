@@ -6,6 +6,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>appicon.ico</ApplicationIcon>
     <PackageIcon>appicon.png</PackageIcon>
   </PropertyGroup>
 
