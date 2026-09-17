@@ -573,6 +573,24 @@ namespace WindowWorks.App
                 return ReparentOutcome.NotMutated;
             }
 
+            // BUG FIX (maximized-source crop report): a target that was maximized when picked
+            // (e.g. a maximized browser window cropped via a DOM pick) needs its actual current
+            // size captured and explicitly re-asserted after reparenting, rather than relying on
+            // SWP_NOSIZE to preserve it. Windows tracks "is this window zoomed" internally,
+            // separate from the WS_MAXIMIZE style bit; once SetParent detaches the target from
+            // being a top-level maximized window, that internal zoom-state resolution snaps the
+            // window down to its pre-maximize "restored" size — even under SWP_NOSIZE — leaving a
+            // too-small video element and a blank unpainted strip filling the leftover socket
+            // area. The capture must happen immediately before SetParent: capturing it any later
+            // (even a moment after SetParent runs) already observes the snapped-down size, and
+            // capturing it earlier (e.g. at SaveOriginalState time) risks staleness across the
+            // unbounded-latency gap before Reparent actually runs (host-window construction plus
+            // a WPF Dispatcher "Loaded" round-trip).
+            bool haveUsableRect = NativeMethods.GetWindowRect(targetHwnd, out var preStripRect) &&
+                !NativeMethods.IsIconic(targetHwnd);
+            int preStripWidth = haveUsableRect ? preStripRect.Right - preStripRect.Left : 0;
+            int preStripHeight = haveUsableRect ? preStripRect.Bottom - preStripRect.Top : 0;
+
             if (!TrySetParent(targetHwnd, hostChildHwnd, out int setParentError))
             {
                 DebugLog($"Reparent: SetParent(target={targetHwnd}, host={hostChildHwnd}) failed, GetLastError={setParentError}");
@@ -589,10 +607,14 @@ namespace WindowWorks.App
             // PowerToys crop-mode precedent of stripping WS_THICKFRAME/WS_MAXIMIZEBOX, just applied
             // unconditionally to whole-window reparenting too (not only crop mode), and makes the
             // previous mouse-hook workaround for drag/resize ghosting unnecessary — removed below.
+            // WS_MAXIMIZE is stripped alongside the other chrome bits for the same reason: a
+            // maximized child window is nonsensical. This does not affect restore: the saved
+            // Placement/Style in ReparentedWindowState is untouched and still carries WS_MAXIMIZE,
+            // so RestoreOriginalState correctly restores the window to maximized.
             int style = NativeMethods.GetWindowLong(targetHwnd, NativeMethods.GWL_STYLE);
             int strippedStyle = (style | NativeMethods.WS_CHILD) &
                 ~(NativeMethods.WS_CAPTION | NativeMethods.WS_THICKFRAME | NativeMethods.WS_MINIMIZEBOX |
-                  NativeMethods.WS_MAXIMIZEBOX | NativeMethods.WS_SYSMENU);
+                  NativeMethods.WS_MAXIMIZEBOX | NativeMethods.WS_SYSMENU | NativeMethods.WS_MAXIMIZE);
             NativeMethods.SetWindowLong(targetHwnd, NativeMethods.GWL_STYLE, strippedStyle);
 
             bool posOk = NativeMethods.SetWindowPos(
@@ -600,9 +622,9 @@ namespace WindowWorks.App
                 IntPtr.Zero,
                 x,
                 y,
-                0,
-                0,
-                NativeMethods.SWP_NOSIZE | NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOZORDER);
+                preStripWidth,
+                preStripHeight,
+                (haveUsableRect ? 0 : NativeMethods.SWP_NOSIZE) | NativeMethods.SWP_FRAMECHANGED | NativeMethods.SWP_NOZORDER);
             if (!posOk)
             {
                 DebugLog($"Reparent: SetWindowPos(target={targetHwnd}, x={x}, y={y}) failed, GetLastError={Marshal.GetLastWin32Error()}");
@@ -982,6 +1004,7 @@ namespace WindowWorks.App
             public const int WS_MINIMIZEBOX = 0x00020000;
             public const int WS_MAXIMIZEBOX = 0x00010000;
             public const int WS_SYSMENU = 0x00080000;
+            public const int WS_MAXIMIZE = 0x01000000;
 
             public const uint SWP_NOSIZE = 0x0001;
             public const uint SWP_NOMOVE = 0x0002;
@@ -1054,6 +1077,9 @@ namespace WindowWorks.App
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+            [DllImport("user32.dll")]
+            public static extern bool IsIconic(IntPtr hWnd);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);

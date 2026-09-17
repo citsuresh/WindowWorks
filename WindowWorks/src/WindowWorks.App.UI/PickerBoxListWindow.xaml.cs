@@ -24,6 +24,34 @@ namespace WindowWorks.App.UI
         public string? AutomationRuntimeId { get; }
         public object? CapturedIdentity { get; }
 
+        /// <summary>
+        /// Set when this box represents a UI Automation DOM element pick (docs/
+        /// REPARENT_FEATURE_PLAN.md §Phase 6) rather than a native ancestor-chain HWND pick.
+        /// DOM entries have no HWND of their own (<see cref="Hwnd"/> is <see cref="IntPtr.Zero"/>
+        /// for them) — the containing browser HWND and clipped screen rect live on the entry
+        /// itself.
+        /// </summary>
+        public object? DomEntry { get; }
+
+        /// <summary>
+        /// Nesting depth used for visual indentation only (docs/REPARENT_FEATURE_PLAN.md §Phase
+        /// 6): 0 for the shallowest/root-most entry, increasing toward the deepest/nearest-
+        /// hovered entry. Kept deliberately small/low-cost (a per-box left margin, see
+        /// <c>PickerBoxListWindow.xaml</c>'s <c>IndentLevelToMarginConverter</c> usage) rather than a
+        /// real tree-view control, since this is still the flat hover-box list (§6.3), just with
+        /// a hint of hierarchy — a full tree view is planned separately (§6.7).
+        /// </summary>
+        public int IndentLevel { get; }
+
+        /// <summary>
+        /// Untruncated label text shown as a tooltip on hover, and as the actual displayed text
+        /// (the box's <c>TextBlock</c> uses <c>TextTrimming="CharacterEllipsis"</c> to trim it
+        /// visually rather than the text itself being pre-shortened). Defaults to <see cref="Label"/>
+        /// itself when no separate full text is supplied (native ancestor-chain / crop entries,
+        /// whose labels are never truncated).
+        /// </summary>
+        public string FullLabel { get; }
+
         public PickerAncestorBoxItem(
             IntPtr hwnd,
             string label,
@@ -33,7 +61,10 @@ namespace WindowWorks.App.UI
             DateTime processStartTimeUtc = default,
             string? className = null,
             string? automationRuntimeId = null,
-            object? capturedIdentity = null)
+            object? capturedIdentity = null,
+            object? domEntry = null,
+            int indentLevel = 0,
+            string? fullLabel = null)
         {
             Hwnd = hwnd;
             Label = label;
@@ -44,6 +75,9 @@ namespace WindowWorks.App.UI
             ClassName = className;
             AutomationRuntimeId = automationRuntimeId;
             CapturedIdentity = capturedIdentity;
+            DomEntry = domEntry;
+            IndentLevel = indentLevel;
+            FullLabel = fullLabel ?? label;
         }
     }
 
@@ -130,6 +164,148 @@ namespace WindowWorks.App.UI
                 anchorScreenY = fallbackScreenY;
             }
 
+            PositionNearAnchor(anchorScreenX, anchorScreenY);
+        }
+
+        /// <summary>
+        /// Same adaptive anchoring as <see cref="PositionNearHighlight"/>, but anchored to an
+        /// arbitrary screen-pixel rect rather than an HWND's own bounds (docs/
+        /// REPARENT_FEATURE_PLAN.md §Phase 6) — used for UI Automation DOM element picks, which
+        /// have no HWND of their own to query via <c>GetWindowRect</c>.
+        /// <paramref name="dpiReferenceHwnd"/> supplies the per-monitor DPI for the box list's own
+        /// pixel-to-DIP conversion (typically the containing browser window).
+        ///
+        /// Deliberately does NOT reuse <see cref="PositionNearHighlight"/>'s "overlap inward from
+        /// the top-right corner" placement: for a small, arbitrary DOM element rect (as opposed to
+        /// a whole native window's rect) that placement fully covers the element the user is
+        /// trying to preview before picking it — a real usability problem found during manual
+        /// testing. Per explicit user direction, the box list instead sits mostly OUTSIDE the
+        /// highlighted rect, extending to its right, overlapping only the rightmost ~10% of the
+        /// rect's own width — enough to still visually anchor the list to what's highlighted,
+        /// without hiding the highlighted content. The list is intentionally still kept
+        /// overlapping (not fully external) so the cursor's path from "over the highlighted
+        /// element" to "over a box" never leaves the highlighted rect's own bounds (otherwise
+        /// moving toward a fully-external box list would cross over other page content first,
+        /// which would re-trigger hover discovery for that other content mid-move).
+        /// </summary>
+        public void PositionNearScreenRect(
+            IntPtr dpiReferenceHwnd,
+            int screenLeft,
+            int screenTop,
+            int screenRight,
+            int screenBottom,
+            int fallbackScreenX,
+            int fallbackScreenY)
+        {
+            const double OverlapFraction = 0.10;
+
+            double dpi = 96.0;
+            try
+            {
+                var hwnd = new WindowInteropHelper(this).Handle;
+                if (hwnd != IntPtr.Zero)
+                {
+                    uint rawDpi = NativeMethods.GetDpiForWindow(hwnd);
+                    if (rawDpi > 0)
+                    {
+                        dpi = rawDpi;
+                    }
+                }
+            }
+            catch { }
+            double scale = 96.0 / dpi;
+
+            double dipX;
+            double dipY;
+            if (screenRight > screenLeft && screenBottom > screenTop)
+            {
+                double rectWidthDip = (screenRight - screenLeft) * scale;
+                double overlapDip = rectWidthDip * OverlapFraction;
+                double rectRightDip = screenRight * scale;
+                double rectLeftDip = screenLeft * scale;
+
+                // Box list's own left edge lands just inside the rect's right edge by
+                // OverlapFraction of the rect's width, then extends rightward (outside the rect)
+                // from there — the opposite extension direction from PositionNearHighlight, which
+                // intentionally extends leftward/inward instead.
+                dipX = rectRightDip - overlapDip;
+                dipY = screenTop * scale;
+
+                // If the work area doesn't have room to the right (e.g. the highlighted element
+                // sits near a monitor's right edge), naive clamping alone would slide the list
+                // back to fully cover the rect again. Flip to anchor from the rect's LEFT edge
+                // instead (list extends further left, overlapping only the leftmost
+                // OverlapFraction of the rect's width) whenever the right-anchored position
+                // wouldn't fit in the current monitor's work area.
+                if (TryGetWorkAreaDip(screenLeft, screenTop, scale, out var workLeft, out _, out var workRight, out _)
+                    && dipX + ActualWidth > workRight)
+                {
+                    double flippedDipX = (rectLeftDip + overlapDip) - ActualWidth;
+                    if (flippedDipX >= workLeft)
+                    {
+                        dipX = flippedDipX;
+                    }
+                }
+            }
+            else
+            {
+                dipX = fallbackScreenX * scale;
+                dipY = fallbackScreenY * scale;
+            }
+
+            ClampToNearestMonitorWorkArea(ref dipX, ref dipY, screenLeft, screenTop, scale);
+
+            Left = dipX;
+            Top = dipY;
+        }
+
+        private bool TryGetWorkAreaDip(int referenceScreenX, int referenceScreenY, double scale, out double workLeft, out double workTop, out double workRight, out double workBottom)
+        {
+            workLeft = workTop = workRight = workBottom = 0;
+            var pt = new NativeMethods.POINT { X = referenceScreenX, Y = referenceScreenY };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(pt, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            var mi = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+            if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi))
+            {
+                return false;
+            }
+
+            workLeft = mi.rcWork.Left * scale;
+            workTop = mi.rcWork.Top * scale;
+            workRight = mi.rcWork.Right * scale;
+            workBottom = mi.rcWork.Bottom * scale;
+            return true;
+        }
+
+        private void ClampToNearestMonitorWorkArea(ref double dipX, ref double dipY, int referenceScreenX, int referenceScreenY, double scale)
+        {
+            var pt = new NativeMethods.POINT { X = referenceScreenX, Y = referenceScreenY };
+            IntPtr monitor = NativeMethods.MonitorFromPoint(pt, NativeMethods.MONITOR_DEFAULTTONEAREST);
+            var mi = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+            if (monitor == IntPtr.Zero || !NativeMethods.GetMonitorInfo(monitor, ref mi))
+            {
+                return;
+            }
+
+            double workRight = mi.rcWork.Right * scale;
+            double workBottom = mi.rcWork.Bottom * scale;
+            double workLeft = mi.rcWork.Left * scale;
+            double workTop = mi.rcWork.Top * scale;
+
+            if (dipX + ActualWidth > workRight)
+            {
+                dipX = workRight - ActualWidth;
+            }
+            if (dipY + ActualHeight > workBottom)
+            {
+                dipY = workBottom - ActualHeight;
+            }
+            if (dipX < workLeft) dipX = workLeft;
+            if (dipY < workTop) dipY = workTop;
+        }
+
+        private void PositionNearAnchor(int anchorScreenX, int anchorScreenY)
+        {
             var pt = new NativeMethods.POINT { X = anchorScreenX, Y = anchorScreenY };
             IntPtr monitor = NativeMethods.MonitorFromPoint(pt, NativeMethods.MONITOR_DEFAULTTONEAREST);
             var mi = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };

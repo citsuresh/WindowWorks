@@ -123,6 +123,11 @@ namespace WindowWorks.App.UI
         private static readonly Dictionary<IntPtr, WeakReference<ReparentHostWindow>> s_overlayOwnersByHwnd = new();
         private bool _customResizeGripsEnabled;
 
+        // Whether the Maximize overlay button/gesture is allowed at all for this host frame.
+        // See ConfigureResizability's remarks — defaults to true until ConfigureResizability
+        // runs (mirrors the resizable-by-default construction-time default just below).
+        private bool _allowMaximize = true;
+
         public ReparentHostWindow()
         {
             FreezeOverlayBrushes();
@@ -182,9 +187,29 @@ namespace WindowWorks.App.UI
         /// time, and the plan's toggle-timing rule means this is decided once, at reparent time,
         /// not re-evaluated later for an already-open host frame.
         /// </summary>
-        public void ConfigureResizability(bool resizable)
+        /// <param name="resizable">See the general remarks above.</param>
+        /// <param name="allowMaximize">
+        /// Whether the overlay's Maximize button should be shown/usable at all (user request:
+        /// a DOM/crop-mode pick already offers no resize, so it shouldn't offer maximize either
+        /// — maximizing would just stretch the fixed-size cropped content, which is never
+        /// correct). Defaults to <paramref name="resizable"/> when not specified, since a
+        /// fixed-size non-resizable host previously still allowed maximizing via this button;
+        /// callers that want fixed-size-but-maximizable (none currently) can pass true
+        /// explicitly. When false, the maximize/restore overlay button is hidden entirely, and
+        /// any attempt to enter <see cref="WindowState.Maximized"/> by another means (e.g. a
+        /// double-click on the draggable caption area forwarded via WM_NCLBUTTONDOWN/HTCAPTION,
+        /// or an OS-level Aero Snap drag-to-top gesture) is reverted back to
+        /// <see cref="WindowState.Normal"/> in <see cref="OnWindowStateChanged"/>.
+        /// </param>
+        public void ConfigureResizability(bool resizable, bool? allowMaximize = null)
         {
             ResizeMode = resizable ? ResizeMode.CanResizeWithGrip : ResizeMode.CanMinimize;
+            _allowMaximize = allowMaximize ?? resizable;
+
+            if (_maximizeRestoreButton is not null)
+            {
+                _maximizeRestoreButton.Visibility = _allowMaximize ? Visibility.Visible : Visibility.Collapsed;
+            }
 
             // The custom resize-grip hit-test band (and PositionSocket's matching inset that
             // reserves a thin uncovered strip around the socket for it) is only meaningful when
@@ -703,6 +728,7 @@ namespace WindowWorks.App.UI
             _reopenOriginalButton = CreateOverlayIconButton("\uE8A7", "Open original for more picking", OnReopenOriginalClick, out _reopenOriginalGlyph);
             _minimizeButton = CreateOverlayIconButton("\uE921", "Minimize", OnMinimizeClick);
             _maximizeRestoreButton = CreateOverlayIconButton("\uE922", "Maximize", OnMaximizeRestoreClick, out _maximizeRestoreGlyph);
+            _maximizeRestoreButton.Visibility = _allowMaximize ? Visibility.Visible : Visibility.Collapsed;
             _closeRestoreButton = CreateOverlayIconButton("\uE8BB", "Close/Restore", OnCloseRestoreClick, applyTrailingMargin: false);
 
             buttonPanel.Children.Add(_reopenOriginalButton);
@@ -777,11 +803,30 @@ namespace WindowWorks.App.UI
 
         private void OnMaximizeRestoreClick(object sender, RoutedEventArgs e)
         {
+            if (!_allowMaximize && WindowState != WindowState.Maximized)
+            {
+                return;
+            }
+
             WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
         }
 
         private void OnWindowStateChanged(object? sender, EventArgs e)
         {
+            if (WindowState == WindowState.Maximized && !_allowMaximize)
+            {
+                // Maximize is disallowed for this host (e.g. a DOM/crop-mode pick, which already
+                // offers no resize) — revert immediately. WindowState can reach Maximized here
+                // through paths other than the (now-hidden/guarded) overlay button itself, e.g.
+                // an OS-level Aero Snap drag-to-top gesture or a double-click on the draggable
+                // caption area forwarded via WM_NCLBUTTONDOWN/HTCAPTION in
+                // OnOverlayRootGridPreviewMouseLeftButtonDown — both of which are standard
+                // Windows caption-bar affordances this borderless custom-chrome window still
+                // exposes via that forwarded hit-test, independent of the overlay button.
+                WindowState = WindowState.Normal;
+                return;
+            }
+
             if (WindowState == WindowState.Minimized)
             {
                 _overlayIdleHideTimer?.Stop();

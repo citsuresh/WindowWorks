@@ -70,6 +70,38 @@ namespace WindowWorks.App.UI
             }
         }
 
+        /// <summary>
+        /// Positions and shows the highlight rect around an arbitrary screen-pixel rect (docs/
+        /// REPARENT_FEATURE_PLAN.md §Phase 6, item 2) rather than an HWND's own bounds — used for
+        /// UI Automation DOM element picks, which have no HWND of their own to query via
+        /// <see cref="ShowAround"/>. <paramref name="dpiReferenceHwnd"/> supplies the per-monitor
+        /// DPI for the pixel-to-DIP conversion (typically the containing browser window).
+        /// </summary>
+        public void ShowAroundScreenRect(IntPtr dpiReferenceHwnd, int screenLeft, int screenTop, int screenRight, int screenBottom)
+        {
+            WindowRectHelper.ScreenRectToDip(dpiReferenceHwnd, screenLeft, screenTop, screenRight, screenBottom,
+                out var left, out var top, out var width, out var height);
+
+            double borderThicknessDip = BorderHighlight.BorderThickness.Left;
+            double expandDip = Math.Min(6, borderThicknessDip / 2.0);
+
+            Left = left - expandDip;
+            Top = top - expandDip;
+            Width = Math.Max(1, width + expandDip * 2.0);
+            Height = Math.Max(1, height + expandDip * 2.0);
+
+            BorderHighlight.Width = Width;
+            BorderHighlight.Height = Height;
+            Canvas.SetLeft(BorderHighlight, 0);
+            Canvas.SetTop(BorderHighlight, 0);
+            BorderHighlight.Visibility = Visibility.Visible;
+
+            if (!IsVisible)
+            {
+                Show();
+            }
+        }
+
         public new void Hide()
         {
             try { BorderHighlight.Visibility = Visibility.Collapsed; } catch { }

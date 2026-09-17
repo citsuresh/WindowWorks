@@ -1,24 +1,34 @@
 <Window x:Class="WindowWorks.App.UI.PickerBoxListWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WindowWorks.App.UI"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False"
-        ResizeMode="NoResize" ShowActivated="False" SizeToContent="WidthAndHeight" Loaded="OnLoaded">
-    <Border Background="#F2222222" BorderBrush="#CCFFFF00" BorderThickness="1" CornerRadius="3" Padding="2">
-        <ItemsControl x:Name="BoxList">
+        ResizeMode="NoResize" ShowActivated="False" SizeToContent="Height" Width="300" Loaded="OnLoaded">
+    <Window.Resources>
+        <local:IndentLevelToMarginConverter x:Key="IndentLevelToMarginConverter" />
+    </Window.Resources>
+    <Border Background="#E63C3C3C" BorderBrush="#CCFFFF00" BorderThickness="1" CornerRadius="3" Padding="2">
+        <ItemsControl x:Name="BoxList" HorizontalContentAlignment="Stretch">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                    <Border x:Name="BoxBorder" Margin="2" Padding="6,4" CornerRadius="2" Background="#CCFFFF00"
+                    <Border x:Name="BoxBorder" HorizontalAlignment="Stretch"
+                            Margin="{Binding IndentLevel, Converter={StaticResource IndentLevelToMarginConverter}}"
+                            Padding="6,4" CornerRadius="2" Background="#CCFFFF00" Opacity="0.5"
+                            ToolTip="{Binding FullLabel}"
                             MouseEnter="OnBoxMouseEnter" MouseLeftButtonUp="OnBoxClick" Tag="{Binding}">
-                        <StackPanel Orientation="Horizontal">
+                        <DockPanel LastChildFill="True">
                             <Path x:Name="ReparentIcon" Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center"
+                                  DockPanel.Dock="Left"
                                   Stretch="Uniform" Stroke="Black" StrokeThickness="1.6" StrokeStartLineCap="Round"
                                   StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                   Data="M0,10 L10,0 M4,0 L10,0 L10,6" />
                             <Path x:Name="CropIcon" Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center"
+                                  DockPanel.Dock="Left"
                                   Stretch="Uniform" Stroke="Black" StrokeThickness="1.6" Visibility="Collapsed"
                                   Data="M2,0 L2,8 L10,8 M4,2 L12,2 L12,10" />
-                            <TextBlock Text="{Binding Label}" Foreground="Black" FontSize="12" FontWeight="SemiBold" />
-                        </StackPanel>
+                            <TextBlock Text="{Binding FullLabel}" Foreground="Black" FontSize="12" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                        </DockPanel>
                     </Border>
                     <DataTemplate.Triggers>
                         <DataTrigger Binding="{Binding IsCropEntry}" Value="True">
@@ -26,6 +36,9 @@
                             <Setter TargetName="CropIcon" Property="Visibility" Value="Visible" />
                             <Setter TargetName="ReparentIcon" Property="Visibility" Value="Collapsed" />
                         </DataTrigger>
+                        <Trigger SourceName="BoxBorder" Property="IsMouseOver" Value="True">
+                            <Setter TargetName="BoxBorder" Property="Opacity" Value="1" />
+                        </Trigger>
                     </DataTemplate.Triggers>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>

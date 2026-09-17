@@ -64,6 +64,42 @@ namespace WindowWorks.App.UI
             return true;
         }
 
+        /// <summary>
+        /// Converts an arbitrary screen-pixel rect (e.g. a UI Automation DOM element's
+        /// <c>BoundingRectangle</c>, already clipped via a rect-clip helper) to WPF DIPs, using
+        /// <paramref name="dpiReferenceHwnd"/> (typically the containing browser window) for the
+        /// per-monitor DPI lookup — mirrors <see cref="TryGetFrameBoundsDip"/>'s pixel-to-DIP
+        /// conversion, but for a rect that has no HWND of its own to query directly.
+        /// </summary>
+        public static void ScreenRectToDip(
+            IntPtr dpiReferenceHwnd,
+            int screenLeft,
+            int screenTop,
+            int screenRight,
+            int screenBottom,
+            out double left,
+            out double top,
+            out double width,
+            out double height)
+        {
+            double dpi = 96.0;
+            try
+            {
+                uint rawDpi = NativeMethods.GetDpiForWindow(dpiReferenceHwnd);
+                if (rawDpi > 0)
+                {
+                    dpi = rawDpi;
+                }
+            }
+            catch { }
+
+            double scale = 96.0 / dpi;
+            left = screenLeft * scale;
+            top = screenTop * scale;
+            width = Math.Max(1, (screenRight - screenLeft)) * scale;
+            height = Math.Max(1, (screenBottom - screenTop)) * scale;
+        }
+
         private static class NativeMethods
         {
             [DllImport("user32.dll", SetLastError = true)]

@@ -18,6 +18,19 @@ namespace WindowWorks.App
     /// <see cref="ReparentController"/> only ever holding one active session at a time and calling
     /// <see cref="Cancel"/> on the previous one before starting a new one.
     /// </summary>
+
+    public sealed class DomPickConfirmedEventArgs : EventArgs
+    {
+        public DomPickConfirmedEventArgs(DomElementEntry domEntry, AncestorChainEntry browserTopLevelEntry)
+        {
+            DomEntry = domEntry ?? throw new ArgumentNullException(nameof(domEntry));
+            BrowserTopLevelEntry = browserTopLevelEntry ?? throw new ArgumentNullException(nameof(browserTopLevelEntry));
+        }
+
+        public DomElementEntry DomEntry { get; }
+        public AncestorChainEntry BrowserTopLevelEntry { get; }
+    }
+
     public sealed class WindowPickerSession : IDisposable
     {
         private const int PollIntervalMs = 40;
@@ -44,6 +57,7 @@ namespace WindowWorks.App
         private IntPtr _lastHoveredHwnd = IntPtr.Zero;
         private bool _lastHoveredIsChildHwndPick;
         private AncestorChainEntry? _lastHoveredEntry;
+        private AncestorChainEntry? _lastHoveredBrowserTopLevelEntry;
         private System.Collections.Generic.List<AncestorChainEntry> _lastDiscoveredChain = new();
         private bool _disposed;
 
@@ -58,6 +72,13 @@ namespace WindowWorks.App
         /// The entry identifies the currently highlighted ancestor-chain target.
         /// </summary>
         public event EventHandler<AncestorChainEntry>? CropRequested;
+
+        /// <summary>
+        /// Raised once when the user confirms a DOM element box so the caller can crop-and-
+        /// reparent the whole browser HWND using that element's clipped screen rect while still
+        /// re-verifying the browser window's own identity.
+        /// </summary>
+        public event EventHandler<DomPickConfirmedEventArgs>? DomPickConfirmed;
 
         /// <summary>
         /// Raised once if the session ends without a pick (Escape, or re-invocation cancel). The
@@ -163,6 +184,59 @@ namespace WindowWorks.App
                     _lastHoveredHwnd = IntPtr.Zero;
                     _lastHoveredIsChildHwndPick = false;
                     _lastHoveredEntry = null;
+                    _lastHoveredBrowserTopLevelEntry = null;
+                    return;
+                }
+
+                // Phase 6 (bare-minimum slice, docs/REPARENT_FEATURE_PLAN.md §Phase 6): if the
+                // hovered top-level window is a Chromium-family browser, switch discovery from
+                // the native ancestor-chain walk to a UI Automation DOM-tree walk rooted at the
+                // page's Document element, still driving the same yellow-box list/highlight UX.
+                // This slice is visual-only — confirming a DOM box does not yet wire into
+                // crop-and-reparent (that's a later piece); it currently just cancels the session.
+                var topLevelEntry = FindTopLevelEntry(chain);
+                if (topLevelEntry is not null && BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))
+                {
+                    var domEntries = BrowserDomTreeWalker.Discover(topLevelEntry.Hwnd, pt.X, pt.Y);
+                    if (domEntries.Count == 0)
+                    {
+                        _highlight.Hide();
+                        _boxList.Hide();
+                        _lastHoveredHwnd = IntPtr.Zero;
+                        _lastHoveredIsChildHwndPick = false;
+                        _lastHoveredEntry = null;
+                        _lastHoveredBrowserTopLevelEntry = null;
+                        return;
+                    }
+
+                    _boxList.SetItems(BuildDomItems(domEntries, _includeCropEntry));
+                    if (!_boxList.IsVisible)
+                    {
+                        _boxList.Show();
+                    }
+
+                    var nearestDom = domEntries[0];
+                    _lastHoveredHwnd = topLevelEntry.Hwnd;
+                    _lastHoveredIsChildHwndPick = false;
+                    _lastHoveredEntry = topLevelEntry;
+                    _lastHoveredBrowserTopLevelEntry = topLevelEntry;
+                    _highlight.ShowAroundScreenRect(
+                        topLevelEntry.Hwnd,
+                        nearestDom.ClippedScreenRect.Left,
+                        nearestDom.ClippedScreenRect.Top,
+                        nearestDom.ClippedScreenRect.Right,
+                        nearestDom.ClippedScreenRect.Bottom);
+                    // Anchor near the highlighted DOM rect itself (not the whole browser window)
+                    // so the box list sits next to what's actually highlighted, consistent with
+                    // the native-picker case anchoring to the highlighted HWND's own bounds.
+                    _boxList.PositionNearScreenRect(
+                        topLevelEntry.Hwnd,
+                        nearestDom.ClippedScreenRect.Left,
+                        nearestDom.ClippedScreenRect.Top,
+                        nearestDom.ClippedScreenRect.Right,
+                        nearestDom.ClippedScreenRect.Bottom,
+                        pt.X,
+                        pt.Y);
                     return;
                 }
 
@@ -179,6 +253,7 @@ namespace WindowWorks.App
                     _lastHoveredHwnd = nearest.Hwnd;
                     _lastHoveredIsChildHwndPick = !nearest.IsTopLevel;
                     _lastHoveredEntry = nearest;
+                    _lastHoveredBrowserTopLevelEntry = null;
                     _highlight.ShowAround(nearest.Hwnd);
 
                     // Anchor the box list next to the highlighted window's own bounds rather than
@@ -222,8 +297,14 @@ namespace WindowWorks.App
             var items = new System.Collections.Generic.List<PickerAncestorBoxItem>((includePopOutPicks ? chain.Count : 0) + (includeCropEntry ? 1 : 0));
             if (includePopOutPicks)
             {
-                foreach (var entry in chain)
+                // Indentation hint (docs/REPARENT_FEATURE_PLAN.md §Phase 6): the chain is
+                // nearest/deepest-first, so the deepest entry (index 0) gets the highest indent,
+                // decreasing toward the root (last entry) — mirrors DOM nesting depth without
+                // needing a real tree structure, since the list order already reflects it.
+                for (int i = 0; i < chain.Count; i++)
                 {
+                    var entry = chain[i];
+                    int indentLevel = chain.Count - 1 - i;
                     string title = string.IsNullOrWhiteSpace(entry.Title) ? entry.ClassName : entry.Title;
                     string label = entry.IsTopLevel ? title : $"{title} ({entry.ClassName})";
                     items.Add(new PickerAncestorBoxItem(
@@ -234,8 +315,62 @@ namespace WindowWorks.App
                         processStartTimeUtc: entry.ProcessStartTimeUtc,
                         className: entry.ClassName,
                         automationRuntimeId: entry.AutomationRuntimeId,
-                        capturedIdentity: entry.CapturedIdentity));
+                        capturedIdentity: entry.CapturedIdentity,
+                        indentLevel: indentLevel));
                 }
+            }
+            if (includeCropEntry)
+            {
+                items.Add(new PickerAncestorBoxItem(
+                    IntPtr.Zero,
+                    "Crop a region",
+                    isChildHwndPick: false,
+                    isCropEntry: true));
+            }
+            return items;
+        }
+
+        /// <summary>
+        /// Builds yellow-box items for a Phase 6 UI Automation DOM-tree walk result (bare-minimum
+        /// slice: labeled purely by control type + name, no crop entry wiring yet beyond simply
+        /// listing it per <paramref name="includeCropEntry"/>'s existing toggle so the stack looks
+        /// consistent with the native-picker case). Real DOM element names/control-type text can
+        /// be much longer than a native ancestor entry's, which was making individual boxes render
+        /// very wide. Originally handled here via manual character-budget truncation (with an
+        /// adaptive per-indent-level budget), but that approach kept under- or over-truncating
+        /// rows relative to how much space the panel's own auto-sizing actually gave each row.
+        /// Replaced with WPF's own <c>TextTrimming="CharacterEllipsis"</c> on a width-capped
+        /// <c>TextBlock</c> (see <c>PickerBoxListWindow.xaml</c>) bound directly to the full label
+        /// — the layout engine measures and trims per-row using the real rendered font/width,
+        /// which manual character counting can't replicate exactly. The full label is always
+        /// available via a tooltip on hover (<see cref="PickerAncestorBoxItem.FullLabel"/>), same
+        /// as before.
+        ///
+        /// Indentation (added per explicit user request, kept deliberately small — see
+        /// <see cref="IndentLevelToMarginConverter"/>'s step size) hints at DOM nesting depth: the
+        /// deepest/nearest-hovered entry (index 0) gets the highest indent, decreasing toward the
+        /// Document root (last entry) — same "list order already reflects depth" approach as the
+        /// native ancestor-chain case above.
+        /// </summary>
+        private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildDomItems(
+            System.Collections.Generic.List<DomElementEntry> domEntries,
+            bool includeCropEntry)
+        {
+            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(domEntries.Count + (includeCropEntry ? 1 : 0));
+            for (int i = 0; i < domEntries.Count; i++)
+            {
+                var entry = domEntries[i];
+                int indentLevel = domEntries.Count - 1 - i;
+                string label = string.IsNullOrWhiteSpace(entry.Name)
+                    ? entry.ControlTypeName
+                    : $"{entry.Name} ({entry.ControlTypeName})";
+                items.Add(new PickerAncestorBoxItem(
+                    IntPtr.Zero,
+                    label,
+                    isChildHwndPick: false,
+                    domEntry: entry,
+                    indentLevel: indentLevel,
+                    fullLabel: label));
             }
             if (includeCropEntry)
             {
@@ -258,6 +393,16 @@ namespace WindowWorks.App
             {
                 return;
             }
+            if (item.DomEntry is DomElementEntry domEntry)
+            {
+                _highlight.ShowAroundScreenRect(
+                    domEntry.BrowserHwnd,
+                    domEntry.ClippedScreenRect.Left,
+                    domEntry.ClippedScreenRect.Top,
+                    domEntry.ClippedScreenRect.Right,
+                    domEntry.ClippedScreenRect.Bottom);
+                return;
+            }
             _lastHoveredHwnd = item.Hwnd;
             _lastHoveredIsChildHwndPick = item.IsChildHwndPick;
             _lastHoveredEntry = FindDiscoveredEntry(item.Hwnd);
@@ -268,6 +413,20 @@ namespace WindowWorks.App
         {
             if (_disposed)
             {
+                return;
+            }
+
+            if (item.DomEntry is DomElementEntry domEntry)
+            {
+                if (_lastHoveredBrowserTopLevelEntry is null)
+                {
+                    Cancel();
+                    return;
+                }
+
+                var browserTopLevelEntry = _lastHoveredBrowserTopLevelEntry;
+                Dispose();
+                DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, browserTopLevelEntry));
                 return;
             }
 

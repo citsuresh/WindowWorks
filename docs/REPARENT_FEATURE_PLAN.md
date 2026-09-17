@@ -2089,4 +2089,213 @@ via the phased/incremental picking model.
 - Accessibility keyboard fallback (§12).
 - Titlebar right-click context-menu entry point (§13, still open/undecided).
 
+### Phase 6 — Planned: DOM-element hover-pick + crop-and-reparent for browser windows
+
+Status: **PLANNED, not started.** Captured from a live feasibility spike (ad-hoc PowerShell/UIA
+scripts against a running Brave/YouTube window, no product code touched) that validated the core
+mechanics below actually work end-to-end.
+
+Goal: when the window under the cursor is a browser (Chromium-family: class name
+`Chrome_WidgetWin_1` and similar), extend the existing hover-picker (§6.2's containment-chain
+picker for native controls) so it can also walk the page's UI Automation (UIA) DOM tree and let
+the user pick an individual DOM element (button, video player region, logo, etc.) the same way
+they currently pick a native control ancestor chain — then crop-and-reparent to just that
+element's bounding rect, reusing the existing Phase 2 crop-and-reparent mechanics (§6.5, §8).
+
+Validated feasibility (this session, live against real Brave/YouTube):
+- Chromium exposes full DOM content via UIA with no CDP/`--remote-debugging-port` flag needed —
+  `AutomationElement.FromHandle` + `TreeWalker`/`FindAll` on the page's `Document`-type root node
+  enumerates real named elements (buttons, links, video player groups, etc.) with accurate
+  `BoundingRectangle`, `IsEnabled`, and supported patterns (`InvokePattern`, `ScrollItemPattern`
+  observed).
+- The existing yellow hollow-border highlight style (`PickerHighlightWindow.xaml`,
+  `BorderBrush="#CCFFFF00"`, 3px, `WS_EX_LAYERED`) visually works unchanged for DOM element rects
+  — no new highlight visual needed, only a new rect *source* (UIA DOM query vs. native window
+  rect).
+- DOM elements always report `NativeWindowHandle == 0` — only the top-level browser window has a
+  real HWND. This confirms per-element `SetParent` is impossible; the only viable mechanism is
+  crop-and-reparent (§6.5/§8) applied to the *whole browser window*, using the picked DOM
+  element's `BoundingRectangle` as the crop rect — same technique already implemented for native
+  ancestor-chain crop-and-reparent, just fed a UIA-DOM-sourced rect instead of a native
+  control's rect.
+- Crop-and-reparent of a real, live top-level Chromium window via `SetParent` + style-stripping +
+  negative-offset `SetWindowPos` was demonstrated safely restorable multiple times, PROVIDED
+  restore (`SetParent` back to `NULL`, restore `GWL_STYLE`, restore original position/size) always
+  happens **before** the temporary host is destroyed. The existing `ReparentEngine`
+  save/restore/rollback flow (`SaveOriginalState`/`RestoreOriginalState`/`TryRollbackFailedReparent`)
+  already enforces this ordering — Phase 6 must route through it rather than duplicating ad-hoc
+  restore logic.
+
+Known bug to fix (found during the spike, not yet fixed): computing the reparented target's
+negative `SetWindowPos` offset from the host window's raw `Location` (or a hardcoded screen
+position) instead of the host's actual **client-area** screen origin
+(`Form.PointToScreen(Point.Empty)` equivalent) causes visible misalignment/overshoot — border
+and title-bar thickness shift the true client origin away from the window's outer position. Any
+Phase 6 (and general crop-and-reparent) implementation must always resolve the *client* origin of
+the host/socket window before computing offsets, never the window's outer `Location`/rect.
+
+Scope for this phase (high-level, to be broken down further when Phase 6 is actually started):
+1. Detect when the hover-picker's window-under-cursor is a browser window (class-name match
+   against a known Chromium/Chrome family list; extensible allowlist, not hardcoded to one
+   browser).
+2. When detected, switch the hover discovery (§6.2) from native ancestor-chain walking to a UIA
+   DOM-tree walk rooted at the browser window's `Document` element, still following the same
+   "yellow box list, pick one" UX (§6.3) already built for native controls.
+3. Clip/validate each candidate DOM element's `BoundingRectangle` against the browser window's
+   actual client rect before highlighting (`GetClientRect` + `ClientToScreen` intersection) — a
+   `ClipToWindowBounds()` helper, needed because UIA DOM rects were observed going outside the
+   window's real bounds near corners/edges (separate bug also found this session, not yet fixed
+   anywhere).
+4. On confirm, feed the picked element's (clipped) rect into the existing crop-and-reparent path
+   (§6.5/§8) as the crop rect, targeting the whole browser HWND — no new reparent mechanism, just
+   a new rect source.
+5. Fix the client-origin-vs-outer-Location offset bug (above) as part of this phase's
+   implementation, since it directly affects crop accuracy for both this new DOM path and the
+   existing native crop-and-reparent path.
+
+Explicitly out of scope for Phase 6 (deferred/declined during the spike, revisit only if the user
+reopens them):
+- True DOM-level hide/attribute editing via Chrome DevTools Protocol (CDP) — requires the browser
+  to be relaunched with `--remote-debugging-port`; user explicitly deferred this as "more complex,
+  we will see other options."
+- Live cursor-following continuous DOM highlighter (highlight tracks the raw mouse position
+  in real time, no window-under-cursor/hover-discovery step) — two ad-hoc attempts this session
+  were inconclusive; the containment-chain hover-picker model (§6.2, reused above) is the
+  intended UX instead, not a free-floating cursor tracker.
+
+### 6.6 Bare-minimum implementation slice actually built (hover-to-DOM-boxes), plus known
+   follow-up UX fix and a planned Element Tree view
+
+Status: **hover slice CODE COMPLETE, including crop-and-reparent wiring** (DOM box confirm now
+drives a real crop-and-reparent via `StartDomCropReparent`, plus a fix for a maximized-source-
+window crop rendering bug and a UX refinement disabling Maximize for these fixed-size hosts). An
+Element Tree view POC is **PLANNED, not started** (see §6.7).
+
+What was implemented for this slice:
+- `BrowserClassifier` — Chromium-family top-level window class allowlist. Confirmed live against
+  a running Brave window and a running Edge window during implementation: both report
+  `Chrome_WidgetWin_1` as their top-level class name (this also covers Chrome/Vivaldi/Opera/
+  WebView2-hosted apps, which share the same class). Firefox (`MozillaWindowClass`) is a
+  different rendering/accessibility backend and remains explicitly out of scope/unvalidated.
+- `BrowserDomTreeWalker` — given a browser HWND and a screen point, resolves the deepest DOM
+  element under that point via `AutomationElement.FromPoint`, then walks parents via
+  `TreeWalker.ControlViewWalker` up to (and including) the page's `Document`-type root, mirroring
+  `AncestorChainWalker.Discover`'s shape/ordering (nearest/deepest first) so it can drive the same
+  box-list/highlight UX. **Correction to an earlier assumption in this doc:** the `Document`
+  element is NOT necessarily a direct child of the browser's top-level window in the UIA tree —
+  live testing against Edge found it nested a few `Pane` levels down (behind tab-content wrapper
+  panes), so a `TreeScope.Subtree` search (not `TreeScope.Children`) is required to locate it
+  directly; walking from a point via `FromPoint` + parent-walking (as implemented) sidesteps this
+  entirely by never needing to search down from the top in the first place.
+- `RectClipHelper.TryClipToWindowBounds` — confirmed-needed during implementation: a live Edge
+  DOM element's `BoundingRectangle` was observed with a negative X origin (extending left of the
+  browser's actual client area) purely from a top-level "page group" wrapper element, not any
+  unusual page content — confirming the corner/edge clipping bug described above is a real,
+  reproducible Chromium/UIA quirk, not a one-off. Every DOM entry is clipped against the browser's
+  `GetClientRect`+`ClientToScreen`-derived screen rect before being offered as a pick or
+  highlighted.
+- `WindowPickerSession.OnTick` — when the hovered top-level window is Chromium-family, switches
+  from `AncestorChainWalker.Discover` to `BrowserDomTreeWalker.Discover` for that tick, feeding the
+  same `PickerBoxListWindow`/`PickerHighlightWindow` UX. DOM box confirm now drives a real
+  crop-and-reparent of the picked DOM element via `ReparentController.StartDomCropReparent`,
+  clipped to the element's screen rect — the same crop-and-reparent mechanics used for native
+  ancestor-chain picks (§Phase 2), just sourced from a DOM rect instead of a native HWND rect.
+- **Maximized-source-window crop bug fix:** reparenting a DOM element (e.g. a video player) from a
+  maximized Chromium browser previously rendered the content at the wrong (pre-maximize/restored)
+  size, leaving a blank/unpainted area. Root cause: `SetParent()` detaching a window from
+  top-level/maximized status triggers Chrome's internally-tracked zoom/placement state to snap the
+  window's rect down to its cached pre-maximize size, independent of the `WS_MAXIMIZE` style bit
+  and regardless of `SetWindowPos` flags. Fixed in `ReparentEngine.Reparent()` by capturing a fresh
+  `GetWindowRect`/`IsIconic` snapshot immediately before `TrySetParent` runs (early enough to
+  precede the snap-down, and fresh enough to avoid staleness), then explicitly re-applying that
+  captured size via `SetWindowPos` after reparenting.
+- **Maximize-disable UX refinement:** fixed-size reparented hosts (crop-mode and child-HWND picks
+  that don't allow resizing) also hide/disable the Maximize button, since resizing isn't supported
+  for these hosts anyway. `ReparentHostWindow.ConfigureResizability` gained an `allowMaximize`
+  parameter (defaults to the existing `resizable` value, so no caller changes were needed); it
+  hides the Maximize button, no-ops the click handler, and reverts `WindowState` back to `Normal`
+  if reached via any other path (Aero Snap, caption double-click).
+- **Follow-up UX fix, found via manual testing of the above:** the box list's existing
+  "overlap the highlighted rect's top-right corner inward" placement (fine for whole native
+  window rects, which are usually much larger than the box list itself) fully covered small DOM
+  element rects (e.g. a video player region), blocking the user's ability to see what they were
+  about to pick. Fixed via a DOM-specific positioning method
+  (`PickerBoxListWindow.PositionNearScreenRect`) that instead anchors the box list mostly OUTSIDE
+  the highlighted rect, extending to one side, overlapping only ~10% of the rect's own width —
+  enough to keep the box list visually anchored to the highlighted element (and keep the cursor's
+  hover path from leaving the highlighted rect while moving toward a box, preserving §6.2's
+  hover-discovery-doesn't-fight-the-box-list property) without hiding the content underneath. Also
+  flips to anchor from the rect's left side instead when there isn't room on the right (e.g. near
+  a monitor's right edge), so the list never re-covers the rect as a side effect of edge-clamping.
+  Long DOM element names (which can be much longer than a native ancestor entry's class-name-based
+  label) are truncated with an ellipsis (grapheme-cluster-safe, not a raw UTF-16 substring, so an
+  emoji/non-BMP character in a DOM name is never split into an invalid unmatched surrogate) rather
+  than capping the number of DOM levels shown in the list, per explicit user preference (do not
+  hide tree depth — shorten the text instead).
+
+### 6.7 Planned: "View Element Tree" — a tree-navigable alternative to hover-based DOM picking
+
+Status: **PLANNED, not started.** Proposed by the user after testing the §6.6 hover-based DOM
+box list and finding that, for deep/branchy real pages, precisely hovering the exact desired DOM
+element can be fiddly — a tree view (mirroring the UX of tools like Microsoft's Inspect.exe or a
+browser DevTools Elements panel) offers a more deliberate, navigable alternative alongside (not
+replacing) the hover-and-click flow from §6.6.
+
+Agreed design:
+- A new entry, **"View Element Tree,"** is appended to the yellow-box stack whenever the hovered
+  top-level window is a Chromium-family browser (§6.6) — positioned above the existing "Crop a
+  region" entry (§6.3) when both are present. Rendered in a visually distinct color (pale
+  orange) from both the standard yellow pick boxes and the blue "Crop a region" entry, so its
+  different nature (a mode switch, not a direct pick) is clear at a glance.
+- Clicking it hides the box list and shows a new tree-view window
+  (`PickerElementTreeWindow`, planned name) in roughly the same screen area/anchor the box list
+  was using — a single picker surface is active at a time, not two floating windows
+  simultaneously, to avoid screen clutter and keep a consistent "one picker UI active" mental
+  model established since §6.1.
+- The tree is a standard WPF `TreeView` bound to a UIA node model rooted at the same `Document`
+  element §6.6 walks to, but populated via **lazy child-expansion** (children fetched via UIA only
+  when a node is actually expanded), not an eager up-front full-subtree walk — chosen over eager
+  population because real modern pages (e.g. YouTube-style SPAs) can have very large/deep DOM
+  trees, and eagerly walking the whole thing via UIA could be slow and does needless work for
+  branches the user never expands. This mirrors how Inspect.exe and browser DevTools Elements
+  panels themselves lazily expand.
+- Selecting (single-clicking to highlight, not yet confirming) a tree node re-highlights the
+  corresponding on-screen rect by reusing the existing `PickerHighlightWindow.ShowAroundScreenRect`
+  plumbing built for §6.6 — no new highlight mechanism needed, only a new rect source (the
+  selected tree node's own `BoundingRectangle`, clipped via the existing `RectClipHelper` exactly
+  as §6.6 already does for hover-based DOM picks).
+- **Confirm gesture is BOTH of the following (user explicitly wants both available, not one or
+  the other):** double-clicking a tree node, OR clicking a dedicated "Select" button placed
+  near the tree (above or below it). Either gesture ends the tree-view mode identically: closes
+  the tree-view window and raises the same confirm pathway §6.6's DOM box confirm will eventually
+  use once crop-and-reparent wiring is added (i.e. downstream code does not need to know whether
+  the final pick came from a hover-box click or a tree-node confirm — both funnel into one
+  event/method).
+- **Hover-discovery pause while the tree view is open:** the existing background hover-poll timer
+  (`WindowPickerSession`'s `DispatcherTimer`-driven `OnTick`) must not keep re-discovering/re-
+  highlighting based on live cursor position while the tree-view window has focus/input — mirrors
+  the existing, already-implemented rule that hover re-discovery is skipped whenever the cursor is
+  over the box list itself (`IsPointOverWindow` check in `OnTick`). The simplest correct
+  implementation is pausing the whole timer while the tree-view window is open (tree navigation
+  should never race with hover-driven highlight changes at all), rather than only special-casing
+  cursor-over-tree-window like the box list's narrower check.
+
+Planned bare-minimum POC breakdown for this feature (agreed before implementation, not yet
+started):
+- **Piece A:** add the pale-orange "View Element Tree" box to the existing yellow-box stack.
+  Visual only — clicking it does nothing yet.
+- **Piece B:** build `PickerElementTreeWindow` (WPF `TreeView`, lazy UIA child-expansion per node,
+  a "Select" button) as a standalone window exercised in isolation (not yet wired into
+  `WindowPickerSession`), to validate tree population/navigation/highlighting UX on its own before
+  integration.
+- **Piece C:** wire it together — clicking "View Element Tree" in the box list hides the box list
+  and shows the tree window at the same anchor; selecting a node (double-click or the "Select"
+  button) re-highlights via `ShowAroundScreenRect` and raises the same confirm pathway as a normal
+  box click, closing the tree window; the hover-poll timer pauses while the tree window is open.
+
+Explicitly out of scope for this POC (may be revisited later, not decided against, just not part
+of the bare-minimum POC): search/filter box within the tree, keyboard arrow-key navigation beyond
+whatever `TreeView` provides for free, remembering/restoring previous expansion state across
+picker sessions, and any visual polish beyond making the tree functionally navigable.
+
 

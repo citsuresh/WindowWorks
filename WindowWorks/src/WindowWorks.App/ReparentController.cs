@@ -185,6 +185,15 @@ namespace WindowWorks.App
 
                 StartCropSelection(entry);
             };
+            session.DomPickConfirmed += (_, args) =>
+            {
+                if (ReferenceEquals(_activeSession, session))
+                {
+                    _activeSession = null;
+                }
+
+                StartDomCropReparent(args);
+            };
             session.Cancelled += (_, _) =>
             {
                 if (ReferenceEquals(_activeSession, session))
@@ -214,6 +223,56 @@ namespace WindowWorks.App
 
             _activeSession?.Cancel();
             _activeCropSelection?.Close();
+        }
+
+        private void StartDomCropReparent(DomPickConfirmedEventArgs args)
+        {
+            if (!_ownsReparenting || _disposed)
+            {
+                return;
+            }
+
+            var domEntry = args.DomEntry;
+            var browserTopLevelEntry = args.BrowserTopLevelEntry;
+            IntPtr browserHwnd = domEntry.BrowserHwnd;
+            if (browserHwnd == IntPtr.Zero || !NativeMethods.IsWindow(browserHwnd))
+            {
+                ShowCropFailure();
+                return;
+            }
+
+            if (!ReparentEngine.VerifyWindowIdentity(
+                browserHwnd,
+                browserTopLevelEntry.ProcessId,
+                browserTopLevelEntry.ProcessStartTimeUtc,
+                browserTopLevelEntry.ClassName,
+                browserTopLevelEntry.AutomationRuntimeId,
+                browserTopLevelEntry.CapturedIdentity))
+            {
+                ShowCropFailure();
+                return;
+            }
+
+            var cropRect = new CropRectGeometry.NativeMethods.RECT
+            {
+                Left = domEntry.ClippedScreenRect.Left,
+                Top = domEntry.ClippedScreenRect.Top,
+                Right = domEntry.ClippedScreenRect.Right,
+                Bottom = domEntry.ClippedScreenRect.Bottom
+            };
+
+            if (!CropRectGeometry.TryCompute(browserHwnd, cropRect, out var geometry))
+            {
+                ShowCropFailure();
+                return;
+            }
+
+            OnPicked(
+                browserHwnd,
+                isChildHwndPick: false,
+                geometry,
+                expectedIdentity: browserTopLevelEntry,
+                cropRectScreen: cropRect);
         }
 
         private void StartCropSelection(AncestorChainEntry entry)
@@ -270,11 +329,7 @@ namespace WindowWorks.App
                 }
                 if (!CropRectGeometry.TryCompute(entry.Hwnd, cropRect, out var geometry))
                 {
-                    System.Windows.MessageBox.Show(
-                        "WindowWorks couldn't determine the selected crop region. The window was not reparented.",
-                        "Crop and Reparent Failed",
-                        System.Windows.MessageBoxButton.OK,
-                        System.Windows.MessageBoxImage.Warning);
+                    ShowCropFailure();
                     return;
                 }
 
