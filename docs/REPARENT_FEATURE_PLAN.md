@@ -2164,12 +2164,12 @@ reopens them):
   intended UX instead, not a free-floating cursor tracker.
 
 ### 6.6 Bare-minimum implementation slice actually built (hover-to-DOM-boxes), plus known
-   follow-up UX fix and a planned Element Tree view
+   follow-up UX fix and an Element Tree view
 
 Status: **hover slice CODE COMPLETE, including crop-and-reparent wiring** (DOM box confirm now
 drives a real crop-and-reparent via `StartDomCropReparent`, plus a fix for a maximized-source-
-window crop rendering bug and a UX refinement disabling Maximize for these fixed-size hosts). An
-Element Tree view POC is **PLANNED, not started** (see §6.7).
+window crop rendering bug and a UX refinement disabling Maximize for these fixed-size hosts). The
+Element Tree view is **CODE COMPLETE and extended beyond the original POC scope** (see §6.7/§6.8).
 
 What was implemented for this slice:
 - `BrowserClassifier` — Chromium-family top-level window class allowlist. Confirmed live against
@@ -2305,8 +2305,33 @@ Bare-minimum POC breakdown for this feature, all three pieces implemented:
   tree window's own bounds, matching the plan's chosen approach.
 
 Explicitly out of scope for this POC (may be revisited later, not decided against, just not part
-of the bare-minimum POC): search/filter box within the tree, keyboard arrow-key navigation beyond
-whatever `TreeView` provides for free, remembering/restoring previous expansion state across
-picker sessions, and any visual polish beyond making the tree functionally navigable.
+of the bare-minimum POC): remembering/restoring previous expansion state across picker sessions,
+and any visual polish beyond making the tree functionally navigable. **Search/filter box and
+keyboard arrow-key navigation, originally listed as out of scope here, were subsequently built —
+see §6.8.**
+
+### 6.8 Element Tree extensions: search/filter box, arrow-key navigation, native-window support
+
+Status: **CODE COMPLETE.** Built across several follow-up sessions after the §6.7 POC landed,
+extending the Element Tree view beyond its original browser-DOM-only POC scope.
+
+- **Native window support:** the Element Tree view (previously DOM/browser-only) was extended to
+  also work for plain native Win32/WPF windows — a "View Element Tree" entry now appears for
+  native ancestor-chain box lists too (not just Chromium-family DOM box lists), reusing the same
+  `PickerElementTreeWindow`/`ElementTreeNodeItem` model with a native-UIA-tree root instead of a
+  DOM-`Document` root.
+- **Search/filter box (`SearchBox`):** added to `PickerElementTreeWindow` to let the user filter
+  the tree by typed text instead of manually expanding/scanning branches, matching the tool's
+  Inspect.exe-style intent. Filtering keeps the ancestor-chain context visible around matched
+  nodes (not pruned to exact matches only) so the user can see where a match sits in the tree.
+  A typing bug (characters intermittently failing to register in `SearchBox`) was found and fixed
+  in `ElementTreeNodeItem.cs`/`PickerBoxListWindow.xaml(.cs)`/`PickerElementTreeWindow.xaml(.cs)`
+  and the supporting `DomElementTreeBuilder.cs`/`WindowPickerSession.cs` — live-tested and
+  confirmed working against both a native window (Notepad) and a browser DOM tree (YouTube in
+  Brave) (commit `e36e52c`).
+- **Arrow-key navigation:** keyboard up/down/left/right navigation through the tree (expand/
+  collapse and move selection) was added beyond what `TreeView` provides for free out of the box,
+  after a live-testing session found the default keyboard behavior insufficient for deliberate
+  keyboard-only navigation.
 
 

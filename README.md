@@ -70,6 +70,11 @@ independently of its original app.
 - The Window Reparenting hotkey is editable in Settings -> Shortcuts, alongside Command Palette
   and Emergency Reset.
 - Escape cancels an in-progress pick or crop-region selection at any time.
+- **View Element Tree** - an Inspect.exe-style alternative to hovering for a precise pick. From
+  the picker's box list, choose "View Element Tree" to open a navigable, lazily-expanded tree of
+  the window's UI elements (native windows and Chromium-family browser DOM content both
+  supported), with a search/filter box and keyboard arrow-key navigation. Double-click a node (or
+  use the "Select" button) to confirm a pick the same way a hover-box click would.
 
 
 ## Settings Highlights

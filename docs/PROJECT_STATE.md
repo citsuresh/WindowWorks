@@ -3,63 +3,68 @@
 > This file is overwritten, not appended, at the end of each working session.
 
 ## Current Focus
-- This session was a round of live-testing-driven UX polish on the Window Reparenting feature,
-  fixing several bugs the user found by hand-testing each change immediately. All fixes are
-  committed (`f93a9df`, `6388fe1`); the feature is confirmed working end-to-end by the user.
-- Fixes this session:
-  - Picker gating: whole-window/ancestor-chain picks now correctly gated on
-    `EnablePopOutAndReparent` (previously only crop was gated); `ReparentController`/
-    `TrayController` cancellation/guard logic fixed to use AND (not OR) between the two
-    sub-toggles.
-  - Crop-only mode (Pop Out off, Crop on) now jumps straight into the crop drag-select overlay
-    on hotkey press instead of requiring an extra click through a box list first.
-  - Removed the white border on fixed-size (crop-mode / non-resizable) reparent hosts by
-    disabling the custom resize-grip band entirely for those hosts; resizable hosts keep the
-    grip band, reduced from 8dip to 4dip (`ReparentHostWindow.xaml.cs`,
-    `CustomResizeGripThicknessDip`).
-  - Escape now reliably cancels the crop drag-select overlay: `CropRectSelectionWindow` polls
-    `GetAsyncKeyState(VK_ESCAPE)` via a `DispatcherTimer` (same pattern as
-    `WindowPickerSession`) instead of relying on WPF `KeyDown`/focus, since a window shown via a
-    global hotkey isn't guaranteed real keyboard focus.
-  - Reordered "Allow resizing reparented child elements" to sit under "Pop Out and Reparent"
-    (was previously, confusingly, under "Crop and Reparent").
-  - Exposed the previously-hidden Window Reparenting hotkey in Shortcuts settings (editable,
-    same as Command Palette/Reset All) — backend support already existed.
-  - Fixed two hotkey-save bugs in `HotkeyManager.cs`: (1) saving one hotkey no longer
-    unregisters/re-registers the other two (selective per-id apply via `_appliedHotkeyStrings` +
-    `ApplyOneHotkey`), which previously could spuriously fail with a false "already in use"
-    error; (2) `ApplyHotkeySettings` now marshals onto the `HotkeyManager`'s owning thread's
-    `SynchronizationContext` before calling `RegisterHotKey`/`UnregisterHotKey`, since those
-    Win32 APIs are thread-affine and the Settings dialog runs on its own separate STA thread.
-- Cleaned up leftover untracked scratch/coordination files from an earlier session (diff*.txt,
-  probe_reparent_style.cs, `.github/prompts/{check-agent-report,continue-agent-assignment,
-  main-coordinator,sub-agent}.prompt.md`, `docs/agent-{handoff,to-coordinator}.md`,
-  `docs/coordinator-to-agent.md`) — deleted per user confirmation, not part of this feature.
+- This session had two threads: (1) orchestrating a remote Copilot agent in a separate VS
+  window working on the **AgentDebugToolkit** repo (Phase 21: DPI-aware pointer input verbs —
+  `drag`, `move-mouse`, `get-cursor-pos`, `right-click`, `double-click`), and (2) final
+  verification + commit of the **WindowWorks** "View Element Tree" SearchBox typing-bug fix
+  that was implemented in a prior session.
+- AgentDebugToolkit thread (separate repo, not committed by me — orchestrated only):
+  - Steered the remote agent through Parts A–H of Phase 21 (DPI-awareness, SendInput migration,
+    new verbs, `--durationMs`/`--steps` params) via `ChoicePrompt`/plain-text responses,
+    independently verifying every "ready to commit" claim against `git diff`/rebuild before
+    accepting it.
+  - Found and reported (not fixed directly, per an explicit session-established constraint) a
+    `get-cursor-pos` `EntryPointNotFoundException` bug; the remote agent fixed it correctly.
+  - Approved final commit+push; independently confirmed via `git log`/`git status` that
+    `2f38beb "Add DPI-aware pointer input verbs"` landed and is fully pushed.
+  - Also asked the agent to review and commit a polling-script enhancement
+    (adaptive backoff added to `tools/Watch-CopilotChat.ps1` — `-MaxPollIntervalSeconds`,
+    `-PollBackoffMultiplier`). The agent's own Regression-Audit-style review caught three real
+    bugs across two review passes (unvalidated multiplier/max-vs-initial-interval params, a
+    timeout-overrun bug where a full sleep could exceed `-TimeoutSeconds`, a
+    backward-compat regression for existing single-param callers, and a `Ceiling()` sub-second
+    timing bug) before committing as `1bb1505 "Add adaptive Copilot chat polling backoff"`,
+    confirmed committed and pushed.
+  - Refined the `agent-orchestrator` skill itself based on live feedback during this session:
+    documented running `Watch-CopilotChat.ps1` asynchronously (`mode="async"` + `read_powershell`
+    polling) so poll progress can be relayed to the user in real time instead of only after the
+    whole script call returns/times out; added a rule to always state the sleep duration until
+    the next poll when reporting progress; added a rule to act immediately on the first
+    `state=IDLE` poll line (independently re-inspect / check `git status` right away) instead of
+    waiting for the script's own 2-consecutive-poll stability confirmation.
+- WindowWorks thread:
+  - Live-tested the already-implemented Element Tree SearchBox typing-bug fix via
+    `agentdebug-ui.exe`, in two scenarios: a normal native window (Notepad) and a browser DOM
+    tree (Brave/YouTube). Both passed — typed text lands in `SearchBox` correctly and the tree
+    filters as expected in both native and DOM modes.
+  - Found and cleaned up a stray empty `src/` folder at the repo root (two 0-byte leftover
+    files, `HotkeyManager.cs` and `PickerElementTreeWindow.xaml`) — deleted, not part of any
+    real change.
+  - Left `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` (untracked, dated Sep 16, a future-feature
+    plan unrelated to this session's work) untracked per explicit user choice — not added to
+    the commit.
+  - Committed and pushed the 7-file Element Tree SearchBox fix as
+    `e36e52c "Fix Element Tree SearchBox typing bug; verify native and browser DOM search
+    filtering"` (build verified clean before commit).
 
 ## Open Tasks / Known Issues
-- None outstanding for Window Reparenting as of this session's close — user confirmed the
-  feature works fine end-to-end after this round of fixes.
-- Deferred/backlog only (see `docs/ROADMAP.md`): reparented-window overlay settings (auto-hide
-  delay, hover trigger zone size, always-show toggle, appearance) — explicitly deferred per user
-  request, not scheduled.
-- Older known-open findings (crop-overlap warning not firing, intermittent blank/black
-  crop-reparent host window, a ~10s transient hang) were logged in a prior session — see
-  `docs/KNOWN_OPEN_FINDINGS.md`; not touched or re-investigated this session.
+- None outstanding for the Element Tree SearchBox fix — confirmed working in both native and
+  browser scenarios this session, committed and pushed.
+- `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` remains an untracked planning doc for a **future**
+  feature (Property Inspector — pick any UI element, view/edit its properties, Inspect.exe-style,
+  reusing the existing picker infrastructure but not the crop-and-reparent mechanics). Not
+  started this session; user asked for a prompt to kick it off in a new chat session next.
+- AgentDebugToolkit repo is fully committed/pushed as of this session's close (working tree
+  clean, `git log origin/main..HEAD` empty) — no outstanding work there.
 
 ## Recently Changed Files
-- `WindowWorks/src/WindowWorks.App/HotkeyManager.cs` — committed `f93a9df`: selective per-id
-  hotkey re-registration, thread-marshaling fix.
-- `WindowWorks/src/WindowWorks.App.UI/ReparentHostWindow.xaml(.cs)` — grip band reduced to
-  4dip; fixed-size hosts skip the grip band entirely (no white border).
-- `WindowWorks/src/WindowWorks.App.UI/CropRectSelectionWindow.xaml.cs` — Escape-key polling via
-  `DispatcherTimer` + `GetAsyncKeyState`.
-- `WindowWorks/src/WindowWorks.App.UI/WindowReparentingSettingsControl.xaml` — checkbox
-  reordering, stale doc-text fix.
-- `WindowWorks/src/WindowWorks.App.UI/ShortcutsSettingsControl.xaml`,
-  `ViewModels/ShortcutsSettingsViewModel.cs`, `SettingsWindow.xaml.cs` — Window Reparenting
-  hotkey exposed in Shortcuts settings.
-- `WindowWorks/src/WindowWorks.App/ReparentController.cs`, `TrayController.cs`,
-  `WindowPickerSession.cs` — picker gating fix, crop-only direct-entry UX.
-- `docs/ROADMAP.md` — added reparented-window overlay settings backlog entry.
-- Committed together as `6388fe1` (all except `HotkeyManager.cs`, committed separately as
-  `f93a9df`).
+- `WindowWorks/src/WindowWorks.App.UI/ElementTreeNodeItem.cs`,
+  `PickerBoxListWindow.xaml(.cs)`, `PickerElementTreeWindow.xaml(.cs)` — SearchBox typing-bug
+  fix and search-filter wiring (native + browser DOM modes).
+- `WindowWorks/src/WindowWorks.App/DomElementTreeBuilder.cs`, `WindowPickerSession.cs` —
+  supporting changes to keep native/browser tree entry points aligned.
+- Committed together as `e36e52c`, pushed to `origin/main`.
+- (Separate repo, orchestrated not directly edited) `C:\MyFiles\Git\AgentDebugToolkit`:
+  `NativeMethods.cs`, `Program.cs`, `UiaHelper.cs`, `docs/CLI_CONTRACT.md`,
+  `docs/IMPLEMENTATION_PLAN.md`, `README.md`, `tools/Watch-CopilotChat.ps1` — committed as
+  `2f38beb` and `1bb1505`, both pushed.
