@@ -41,6 +41,8 @@ namespace WindowWorks.App
         private readonly PickerBoxListWindow _boxList = new();
         private PickerElementTreeWindow? _elementTreeWindow;
         private IntPtr _elementTreeBrowserHwnd = IntPtr.Zero;
+        private IntPtr _elementTreeNativeHwnd = IntPtr.Zero;
+        private AncestorChainEntry? _elementTreeNativeTopLevelEntry;
         private readonly bool _includePopOutPicks;
         private readonly bool _includeCropEntry;
         private readonly uint _ownProcessId;
@@ -60,6 +62,7 @@ namespace WindowWorks.App
         private bool _lastHoveredIsChildHwndPick;
         private AncestorChainEntry? _lastHoveredEntry;
         private AncestorChainEntry? _lastHoveredBrowserTopLevelEntry;
+        private AncestorChainEntry? _lastHoveredNativeTopLevelEntry;
         private System.Collections.Generic.List<AncestorChainEntry> _lastDiscoveredChain = new();
         private bool _disposed;
 
@@ -203,6 +206,7 @@ namespace WindowWorks.App
                     _lastHoveredIsChildHwndPick = false;
                     _lastHoveredEntry = null;
                     _lastHoveredBrowserTopLevelEntry = null;
+                    _lastHoveredNativeTopLevelEntry = null;
                     return;
                 }
 
@@ -224,6 +228,7 @@ namespace WindowWorks.App
                         _lastHoveredIsChildHwndPick = false;
                         _lastHoveredEntry = null;
                         _lastHoveredBrowserTopLevelEntry = null;
+                        _lastHoveredNativeTopLevelEntry = null;
                         return;
                     }
 
@@ -238,6 +243,7 @@ namespace WindowWorks.App
                     _lastHoveredIsChildHwndPick = false;
                     _lastHoveredEntry = topLevelEntry;
                     _lastHoveredBrowserTopLevelEntry = topLevelEntry;
+                    _lastHoveredNativeTopLevelEntry = null;
                     _highlight.ShowAroundScreenRect(
                         topLevelEntry.Hwnd,
                         nearestDom.ClippedScreenRect.Left,
@@ -272,6 +278,7 @@ namespace WindowWorks.App
                     _lastHoveredIsChildHwndPick = !nearest.IsTopLevel;
                     _lastHoveredEntry = nearest;
                     _lastHoveredBrowserTopLevelEntry = null;
+                    _lastHoveredNativeTopLevelEntry = topLevelEntry;
                     _highlight.ShowAround(nearest.Hwnd);
 
                     // Anchor the box list next to the highlighted window's own bounds rather than
@@ -336,6 +343,16 @@ namespace WindowWorks.App
                         capturedIdentity: entry.CapturedIdentity,
                         indentLevel: indentLevel));
                 }
+
+                // §6.7 Piece D: same "View Element Tree" mode-switch entry already offered on the
+                // browser DOM path (see BuildDomItems below), now also offered for native windows
+                // — opens a tree rooted at the top-level window's own AutomationElement instead of
+                // a browser page's Document element.
+                items.Add(new PickerAncestorBoxItem(
+                    IntPtr.Zero,
+                    "View Element Tree",
+                    isChildHwndPick: false,
+                    isElementTreeEntry: true));
             }
             if (includeCropEntry)
             {
@@ -557,30 +574,50 @@ namespace WindowWorks.App
         }
 
         /// <summary>
-        /// Opens the tree-view picker surface (docs/REPARENT_FEATURE_PLAN.md §6.7, Piece C) for
-        /// the currently-hovered Chromium-family browser, rooted at the same Document element the
-        /// hover-based box list (§6.6) would walk to under the last-known cursor position. Hides
-        /// (not disposes) the box list so a single picker surface is visually active at a time,
-        /// per the plan's "one picker UI active" model.
+        /// Opens the tree-view picker surface (docs/REPARENT_FEATURE_PLAN.md §6.7, Piece C/D) for
+        /// whatever is currently hovered: a Chromium-family browser (rooted at the same Document
+        /// element the hover-based box list, §6.6, would walk to under the last-known cursor
+        /// position) or, per §6.7 Piece D, any other native top-level window (rooted at the
+        /// window's own AutomationElement via <see cref="DomElementTreeBuilder.TryBuildRootForWindow"/>).
+        /// Hides (not disposes) the box list so a single picker surface is visually active at a
+        /// time, per the plan's "one picker UI active" model.
         /// </summary>
         private void OpenElementTree()
         {
-            if (_lastHoveredBrowserTopLevelEntry is null)
+            ElementTreeNodeItem? root;
+            if (_lastHoveredBrowserTopLevelEntry is not null)
+            {
+                var browserHwnd = _lastHoveredBrowserTopLevelEntry.Hwnd;
+                root = DomElementTreeBuilder.TryBuildRoot(browserHwnd, _lastPoint.X, _lastPoint.Y);
+                if (root is null)
+                {
+                    return;
+                }
+
+                _elementTreeBrowserHwnd = browserHwnd;
+                _elementTreeNativeHwnd = IntPtr.Zero;
+                _elementTreeNativeTopLevelEntry = null;
+            }
+            else if (_lastHoveredNativeTopLevelEntry is not null)
+            {
+                var nativeHwnd = _lastHoveredNativeTopLevelEntry.Hwnd;
+                root = DomElementTreeBuilder.TryBuildRootForWindow(nativeHwnd);
+                if (root is null)
+                {
+                    return;
+                }
+
+                _elementTreeBrowserHwnd = IntPtr.Zero;
+                _elementTreeNativeHwnd = nativeHwnd;
+                _elementTreeNativeTopLevelEntry = _lastHoveredNativeTopLevelEntry;
+            }
+            else
             {
                 // Nothing sensible to root the tree at (e.g. hover state changed between the
                 // click landing and this running) -- leave the box list as the active surface
                 // rather than opening an empty/unusable tree window.
                 return;
             }
-
-            var browserHwnd = _lastHoveredBrowserTopLevelEntry.Hwnd;
-            var root = DomElementTreeBuilder.TryBuildRoot(browserHwnd, _lastPoint.X, _lastPoint.Y);
-            if (root is null)
-            {
-                return;
-            }
-
-            _elementTreeBrowserHwnd = browserHwnd;
 
             var treeWindow = new PickerElementTreeWindow();
             treeWindow.SetRoots(new[] { root });
@@ -617,7 +654,9 @@ namespace WindowWorks.App
                 return;
             }
 
-            var root = DomElementTreeBuilder.TryBuildRoot(_elementTreeBrowserHwnd, _lastPoint.X, _lastPoint.Y);
+            var root = _elementTreeNativeHwnd != IntPtr.Zero
+                ? DomElementTreeBuilder.TryBuildRootForWindow(_elementTreeNativeHwnd)
+                : DomElementTreeBuilder.TryBuildRoot(_elementTreeBrowserHwnd, _lastPoint.X, _lastPoint.Y);
             if (root is null)
             {
                 // Leave the previous (now possibly stale) tree displayed rather than clearing it
@@ -635,8 +674,9 @@ namespace WindowWorks.App
                 return;
             }
 
+            var highlightHwnd = _elementTreeNativeHwnd != IntPtr.Zero ? _elementTreeNativeHwnd : _elementTreeBrowserHwnd;
             _highlight.ShowAroundScreenRect(
-                _elementTreeBrowserHwnd,
+                highlightHwnd,
                 node.ScreenRect.Left,
                 node.ScreenRect.Top,
                 node.ScreenRect.Right,
@@ -645,14 +685,36 @@ namespace WindowWorks.App
 
         private void OnElementTreeNodeConfirmed(object? sender, ElementTreeNodeItem node)
         {
-            if (_disposed || _lastHoveredBrowserTopLevelEntry is null || !node.HasScreenRect)
+            if (_disposed || !node.HasScreenRect)
             {
                 return;
             }
 
-            var browserTopLevelEntry = _lastHoveredBrowserTopLevelEntry;
+            AncestorChainEntry topLevelEntry;
+            IntPtr rootHwnd;
+            if (_elementTreeNativeHwnd != IntPtr.Zero && _elementTreeNativeTopLevelEntry is not null)
+            {
+                // §6.7 Piece D: a native-rooted tree confirm is mechanically identical to the
+                // browser DOM case -- both ultimately crop-and-reparent a real top-level HWND
+                // using a clipped screen rect -- so this reuses DomPickConfirmed/DomElementEntry
+                // rather than introducing a parallel native-specific event/args pair. The
+                // "BrowserHwnd" field name is a misnomer here, but the mechanism (and the
+                // ReparentController.StartDomCropReparent consumer) is exactly what's needed.
+                topLevelEntry = _elementTreeNativeTopLevelEntry;
+                rootHwnd = _elementTreeNativeHwnd;
+            }
+            else if (_lastHoveredBrowserTopLevelEntry is not null)
+            {
+                topLevelEntry = _lastHoveredBrowserTopLevelEntry;
+                rootHwnd = _elementTreeBrowserHwnd;
+            }
+            else
+            {
+                return;
+            }
+
             var domEntry = new DomElementEntry(
-                _elementTreeBrowserHwnd,
+                rootHwnd,
                 controlTypeName: string.Empty,
                 name: node.Label,
                 clippedScreenRect: node.ScreenRect,
@@ -663,7 +725,7 @@ namespace WindowWorks.App
             // box-list confirm paths above -- the confirm event is the last thing raised.
             CloseElementTree();
             Dispose();
-            DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, browserTopLevelEntry));
+            DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, topLevelEntry));
         }
 
         private void OnElementTreeWindowClosed(object? sender, EventArgs e)

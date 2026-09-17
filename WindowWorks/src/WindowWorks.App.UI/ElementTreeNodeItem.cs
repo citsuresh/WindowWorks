@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 
 namespace WindowWorks.App.UI
 {
@@ -14,10 +15,35 @@ namespace WindowWorks.App.UI
     /// once, lazily, the first time a node is actually expanded in the tree — never eagerly for
     /// the whole subtree, since real pages can have very large/deep DOM trees.
     /// </summary>
-    public sealed class ElementTreeNodeItem
+    public sealed class ElementTreeNodeItem : INotifyPropertyChanged
     {
         private readonly Func<ElementTreeNodeItem, IReadOnlyList<ElementTreeNodeItem>>? _childrenLoader;
         private bool _childrenLoaded;
+        private bool _isVisible = true;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        /// <summary>
+        /// Whether this node's <see cref="TreeViewItem"/> row should currently be shown, driven
+        /// by the search/filter box (docs/REPARENT_FEATURE_PLAN.md §6.7 search filter follow-up).
+        /// True (the default) whenever no filter is active, or a node itself or any of its
+        /// (already-loaded) descendants matches the filter text. Bound directly by
+        /// <see cref="PickerElementTreeWindow.xaml"/>'s <c>TreeViewItem</c> style so filtering is
+        /// pure visibility toggling — the underlying tree/selection/children are never mutated.
+        /// </summary>
+        public bool IsVisible
+        {
+            get => _isVisible;
+            set
+            {
+                if (_isVisible == value)
+                {
+                    return;
+                }
+                _isVisible = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsVisible)));
+            }
+        }
 
         /// <summary>Short label shown in the tree row (already elided if long; see <see cref="FullLabel"/>).</summary>
         public string Label { get; }

@@ -120,6 +120,47 @@ namespace WindowWorks.App.UI
             CloseRequested?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Lets the user drag this borderless yellow box-list window by the row above the item
+        /// list (around the Close button). Guards against starting a drag when the click landed
+        /// on the Close button itself. Same WM_NCLBUTTONDOWN/HTCAPTION technique used by
+        /// ReparentHostWindow's overlay drag handle and PickerElementTreeWindow's title row.
+        /// </summary>
+        private void OnDragHandleMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource is DependencyObject source && FindAncestorOrSelf<Button>(source) is not null)
+            {
+                return;
+            }
+
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            const int WM_NCLBUTTONDOWN = 0x00A1;
+            const int HTCAPTION = 2;
+
+            NativeMethods.ReleaseCapture();
+            NativeMethods.SendMessage(hwnd, WM_NCLBUTTONDOWN, new IntPtr(HTCAPTION), IntPtr.Zero);
+            e.Handled = true;
+        }
+
+        private static T? FindAncestorOrSelf<T>(DependencyObject source) where T : DependencyObject
+        {
+            var current = source;
+            while (current is not null)
+            {
+                if (current is T match)
+                {
+                    return match;
+                }
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
         private void OnLoaded(object? sender, RoutedEventArgs e)
         {
             try
@@ -410,6 +451,11 @@ namespace WindowWorks.App.UI
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+            [DllImport("user32.dll")]
+            public static extern bool ReleaseCapture();
+            [DllImport("user32.dll")]
+            public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
 
             [StructLayout(LayoutKind.Sequential)]
             public struct POINT { public int X; public int Y; }

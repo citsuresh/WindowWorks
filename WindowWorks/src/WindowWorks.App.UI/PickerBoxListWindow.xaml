@@ -9,12 +9,20 @@
     </Window.Resources>
     <Border Background="#E63C3C3C" BorderBrush="#CCFFFF00" BorderThickness="1" CornerRadius="3" Padding="2">
         <DockPanel LastChildFill="True">
-            <Button x:Name="CloseButton" DockPanel.Dock="Top" HorizontalAlignment="Right" Width="22" Height="22"
+            <Grid DockPanel.Dock="Top" Background="Transparent" Cursor="SizeAll" MouseLeftButtonDown="OnDragHandleMouseLeftButtonDown" Margin="4,2,2,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Select Element" Foreground="#FFFFFF00" FontSize="12"
+                           FontWeight="SemiBold" VerticalAlignment="Center" IsHitTestVisible="False" />
+            <Button x:Name="CloseButton" Grid.Column="1" HorizontalAlignment="Right" Width="22" Height="22"
                     Padding="0" Margin="0,0,0,2" Background="Transparent" BorderBrush="#55FFFFFF" BorderThickness="1"
                     Foreground="White" Focusable="False" ToolTip="Close" Click="OnCloseClick">
                 <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"
                            HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Button>
+            </Grid>
             <ItemsControl x:Name="BoxList" HorizontalContentAlignment="Stretch">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>

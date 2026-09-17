@@ -45,6 +45,48 @@ namespace WindowWorks.App
             return BuildNode(documentElement, browserHwnd, browserClientScreenRect);
         }
 
+        /// <summary>
+        /// Builds a root <see cref="ElementTreeNodeItem"/> for a native (non-browser) top-level
+        /// window's own UI Automation subtree (docs/REPARENT_FEATURE_PLAN.md §6.7 Piece D), rooted
+        /// at the window's own <see cref="AutomationElement"/> (via <c>FromHandle</c>) rather than
+        /// walking up to a browser page's <c>Document</c> element. Reuses the exact same
+        /// <see cref="BuildNode"/>/<see cref="LoadChildren"/> lazy-loading logic as the browser
+        /// DOM path — <see cref="ElementTreeNodeItem"/> and the UIA calls involved are already
+        /// control-type-agnostic; only the choice of root element and clip rect differ between the
+        /// two entry points. Node rects are clipped against the window's own client rect (in place
+        /// of a browser's client rect), so descendants that overflow the window bounds are clipped
+        /// the same way the browser case already clips against the browser viewport.
+        /// </summary>
+        public static ElementTreeNodeItem? TryBuildRootForWindow(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            AutomationElement rootElement;
+            try
+            {
+                rootElement = AutomationElement.FromHandle(hwnd);
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (rootElement is null)
+            {
+                return null;
+            }
+
+            if (!BrowserDomTreeWalker.TryGetBrowserClientScreenRect(hwnd, out var windowClientScreenRect))
+            {
+                return null;
+            }
+
+            return BuildNode(rootElement, hwnd, windowClientScreenRect);
+        }
+
         private static ElementTreeNodeItem BuildNode(
             AutomationElement element,
             IntPtr browserHwnd,

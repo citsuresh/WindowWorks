@@ -9,13 +9,14 @@
     </WindowChrome.WindowChrome>
     <Border Background="#EE2B2B2B" BorderBrush="#CCFFB74D" BorderThickness="1" CornerRadius="3" Padding="4">
         <DockPanel LastChildFill="True">
-            <Grid DockPanel.Dock="Top" Margin="4,2,4,6">
+            <Grid DockPanel.Dock="Top" Margin="4,2,4,6" Background="Transparent" Cursor="SizeAll"
+                  MouseLeftButtonDown="OnDragHandleMouseLeftButtonDown">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Column="0" Text="View Element Tree" Foreground="#FFFFB74D" FontSize="13"
-                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                           FontWeight="SemiBold" VerticalAlignment="Center" IsHitTestVisible="True" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                     <Button x:Name="RefreshButton" Width="26" Height="26" Padding="0"
                             Background="Transparent" BorderBrush="#55FFFFFF" BorderThickness="1"
@@ -35,6 +36,14 @@
                 <Button x:Name="SelectButton" Content="Select" Padding="8,4"
                         IsEnabled="False" Click="OnSelectClick" />
             </StackPanel>
+            <Grid DockPanel.Dock="Top" Margin="4,0,4,6">
+                <TextBox x:Name="SearchBox" Padding="4,3,24,3"
+                         Background="#331E1E1E" Foreground="White" BorderBrush="#55FFFFFF" BorderThickness="1"
+                         Tag="Search..." TextChanged="OnSearchTextChanged" PreviewKeyDown="SearchBox_PreviewKeyDown" />
+                <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" FontSize="12"
+                           Foreground="#99FFFFFF" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Margin="0,0,6,0" IsHitTestVisible="False" />
+            </Grid>
             <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0"
                       SelectedItemChanged="OnSelectedItemChanged">
                 <TreeView.Resources>
@@ -49,6 +58,17 @@
                     <Style TargetType="{x:Type TreeViewItem}">
                         <EventSetter Event="Expanded" Handler="OnItemExpanded" />
                         <EventSetter Event="MouseDoubleClick" Handler="OnItemDoubleClick" />
+                        <!-- Search filter (docs/REPARENT_FEATURE_PLAN.md Section 6.7 follow-up): a node
+                             hides itself, without being removed from the tree or affecting
+                             selection/lazy-loading, whenever ElementTreeNodeItem.IsVisible is
+                             false; set by the code-behind filter pass whenever neither the node
+                             itself nor any of its (already-loaded) descendants match the current
+                             search text. -->
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsVisible}" Value="False">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                            </DataTrigger>
+                        </Style.Triggers>
                     </Style>
                 </TreeView.Resources>
                 <TreeView.ItemTemplate>
@@ -61,3 +81,4 @@
         </DockPanel>
     </Border>
 </Window>
+

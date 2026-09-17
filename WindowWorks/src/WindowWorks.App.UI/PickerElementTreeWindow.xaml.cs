@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace WindowWorks.App.UI
@@ -55,6 +56,8 @@ namespace WindowWorks.App.UI
 
         private IntPtr _navKeyboardHook;
         private NativeMethods.LowLevelKeyboardProc? _navKeyboardProc;
+        private IReadOnlyList<ElementTreeNodeItem>? _currentRoots;
+        private bool _hasAutoFocusedOnce;
 
         public PickerElementTreeWindow()
         {
@@ -79,6 +82,7 @@ namespace WindowWorks.App.UI
         /// </summary>
         public void SetRoots(IReadOnlyList<ElementTreeNodeItem> roots)
         {
+            _currentRoots = roots;
             Tree.ItemsSource = roots;
 
             int remainingNodeBudget = MaxEagerLoadNodes;
@@ -90,6 +94,11 @@ namespace WindowWorks.App.UI
                 }
                 root.EnsureSubtreeLoaded(ref remainingNodeBudget);
             }
+
+            // Re-apply whatever search text is already in the box (e.g. after a Refresh rebuilds
+            // the roots) so the filter stays in effect across a refresh instead of silently
+            // reverting to "show everything".
+            ApplySearchFilter(SearchBox.Text);
 
             // TreeViewItem containers are generated asynchronously as each ancestor's IsExpanded
             // flips true, so expansion has to cascade down one generated level at a time rather
@@ -104,7 +113,19 @@ namespace WindowWorks.App.UI
             // NavKeyboardProc) that acts whenever this window is the foreground window, regardless
             // of which child control has WPF keyboard focus -- but the *visual* selected-row
             // highlight only renders once a TreeViewItem is both IsSelected and has real focus.
-            Dispatcher.BeginInvoke(new Action(() => SelectAndFocusFirstItem(roots, attemptsRemaining: 10)), DispatcherPriority.Loaded);
+            //
+            // BUG FIX (SearchBox-never-receives-typed-characters report): this auto-focus must
+            // only happen once, on the very first SetRoots call after the window opens -- not on
+            // every subsequent SetRoots (e.g. a Refresh, or SetRoots re-applying the filter). Since
+            // SelectAndFocusFirstItem retries across several dispatcher passes, and each retry
+            // unconditionally steals WPF keyboard focus onto the first TreeViewItem, a user who
+            // clicked into SearchBox and started typing during that retry window would silently
+            // have focus yanked back to the tree, making their keystrokes appear to go nowhere.
+            if (!_hasAutoFocusedOnce)
+            {
+                _hasAutoFocusedOnce = true;
+                Dispatcher.BeginInvoke(new Action(() => SelectAndFocusFirstItem(roots, attemptsRemaining: 10)), DispatcherPriority.Loaded);
+            }
         }
 
         /// <summary>
@@ -117,6 +138,14 @@ namespace WindowWorks.App.UI
         private void SelectAndFocusFirstItem(IReadOnlyList<ElementTreeNodeItem> roots, int attemptsRemaining)
         {
             if (roots.Count == 0)
+            {
+                return;
+            }
+
+            // Don't steal focus from a control the user has already interacted with (e.g. clicked
+            // into SearchBox and started typing) on a later retry pass -- only claim focus while
+            // nothing else in this window has it yet.
+            if (Keyboard.FocusedElement is DependencyObject focused && !ReferenceEquals(focused, this))
             {
                 return;
             }
@@ -279,6 +308,7 @@ namespace WindowWorks.App.UI
             {
                 if (obj is not ElementTreeNodeItem node
                     || ReferenceEquals(node, ElementTreeNodeItem.PlaceholderNode)
+                    || !node.IsVisible
                     || parent.ItemContainerGenerator.ContainerFromItem(obj) is not TreeViewItem container)
                 {
                     continue;
@@ -369,6 +399,48 @@ namespace WindowWorks.App.UI
             CloseRequested?.Invoke(this, EventArgs.Empty);
         }
 
+        /// <summary>
+        /// Lets the user drag this borderless window by its title-bar-equivalent area (the row
+        /// above the search box). Guards against starting a drag when the click landed on a
+        /// Button (Refresh/Close) so those remain clickable. Delegates the actual drag to Windows
+        /// itself (WM_NCLBUTTONDOWN/HTCAPTION), the same proven pattern used by
+        /// ReparentHostWindow's overlay drag handle.
+        /// </summary>
+        private void OnDragHandleMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.OriginalSource is DependencyObject source && FindAncestorOrSelf<Button>(source) is not null)
+            {
+                return;
+            }
+
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            const int WM_NCLBUTTONDOWN = 0x00A1;
+            const int HTCAPTION = 2;
+
+            NativeMethods.ReleaseCapture();
+            NativeMethods.SendMessage(hwnd, WM_NCLBUTTONDOWN, new IntPtr(HTCAPTION), IntPtr.Zero);
+            e.Handled = true;
+        }
+
+        private static T? FindAncestorOrSelf<T>(DependencyObject source) where T : DependencyObject
+        {
+            var current = source;
+            while (current is not null)
+            {
+                if (current is T match)
+                {
+                    return match;
+                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+            return null;
+        }
+
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
             try
@@ -392,7 +464,104 @@ namespace WindowWorks.App.UI
         }
 
         /// <summary>
-        /// Positions the window near an anchor screen rect (typically the hovered element's own
+        /// ROOT CAUSE (confirmed via live UIA trace, see checkpoint history): this window's
+        /// <c>AllowsTransparency="True"</c> (a layered/WS_EX_LAYERED window) breaks WPF's TSF-based
+        /// text-composition pipeline for this window specifically -- <see cref="PreviewKeyDown"/>
+        /// fires normally with the raw key, but no WM_CHAR ever reaches WPF, so
+        /// PreviewTextInput/TextChanged never fire and nothing is ever typed. Same class of bug as
+        /// the earlier arrow-key routing issue on this window (see <see cref="HandleNavKey"/>'s doc
+        /// comment) -- something between the OS input queue and this window's normal message
+        /// composition is swallowed. Workaround: manually translate the virtual key + live keyboard
+        /// modifier state into a character (mirroring what TranslateMessage/WM_CHAR would otherwise
+        /// produce) and insert it directly into the TextBox, bypassing the broken composition path.
+        /// </summary>
+        private void SearchBox_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (sender is not TextBox textBox)
+            {
+                return;
+            }
+
+            if (e.Key == Key.Back)
+            {
+                if (textBox.SelectionLength > 0)
+                {
+                    textBox.SelectedText = string.Empty;
+                }
+                else if (textBox.CaretIndex > 0)
+                {
+                    int index = textBox.CaretIndex - 1;
+                    textBox.Text = textBox.Text.Remove(index, 1);
+                    textBox.CaretIndex = index;
+                }
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Key == Key.Delete)
+            {
+                if (textBox.SelectionLength > 0)
+                {
+                    textBox.SelectedText = string.Empty;
+                }
+                else if (textBox.CaretIndex < textBox.Text.Length)
+                {
+                    textBox.Text = textBox.Text.Remove(textBox.CaretIndex, 1);
+                }
+                e.Handled = true;
+                return;
+            }
+
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+            // Skip modifier/navigation/control keys entirely -- they either have no printable
+            // representation or are already handled elsewhere (arrow keys via NavKeyboardProc).
+            if (key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End
+                or Key.Tab or Key.Enter or Key.Escape or Key.LeftCtrl or Key.RightCtrl
+                or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift
+                or Key.LWin or Key.RWin or Key.CapsLock or Key.Insert or Key.PageUp or Key.PageDown
+                or Key.F1 or Key.F2 or Key.F3 or Key.F4 or Key.F5 or Key.F6
+                or Key.F7 or Key.F8 or Key.F9 or Key.F10 or Key.F11 or Key.F12)
+            {
+                return;
+            }
+
+            uint vk = (uint)KeyInterop.VirtualKeyFromKey(key);
+            if (vk == 0)
+            {
+                return;
+            }
+
+            var keyboardState = new byte[256];
+            if (!NativeMethods.GetKeyboardState(keyboardState))
+            {
+                return;
+            }
+
+            uint scanCode = NativeMethods.MapVirtualKey(vk, NativeMethods.MAPVK_VK_TO_VSC);
+            var buffer = new System.Text.StringBuilder(8);
+            int result = NativeMethods.ToUnicode(vk, scanCode, keyboardState, buffer, buffer.Capacity, 0);
+            if (result <= 0)
+            {
+                // No printable character for this key/modifier combination (e.g. a dead key or a
+                // key with no character mapping) -- let WPF's normal (broken-for-this-window, but
+                // harmless) handling continue rather than swallowing the key.
+                return;
+            }
+
+            string text = buffer.ToString(0, result);
+            if (textBox.SelectionLength > 0)
+            {
+                textBox.SelectedText = string.Empty;
+            }
+            int caret = textBox.CaretIndex;
+            textBox.Text = textBox.Text.Insert(caret, text);
+            textBox.CaretIndex = caret + text.Length;
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Positions the window near an anchor screen rect
         /// rect, or the box list's former position) using the same DPI-aware clamp-to-work-area
         /// approach as <see cref="PickerBoxListWindow.PositionNearScreenRect"/>, so this window
         /// never renders off-screen. Kept intentionally simple (no overlap/flip heuristics) since
@@ -477,6 +646,99 @@ namespace WindowWorks.App.UI
             }
         }
 
+        /// <summary>
+        /// Search/filter box (docs/REPARENT_FEATURE_PLAN.md §6.7 follow-up): re-applies the
+        /// filter on every keystroke against whatever roots are currently loaded. Filtering is
+        /// pure visibility toggling via <see cref="ElementTreeNodeItem.IsVisible"/> (see the
+        /// <c>TreeViewItem</c> style's <c>DataTrigger</c> in the XAML) — it never mutates the
+        /// tree, selection, or lazy-loading state, so clearing the search box always restores the
+        /// exact same tree that was there before filtering.
+        /// </summary>
+        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplySearchFilter(SearchBox.Text);
+        }
+
+        /// <summary>
+        /// Recomputes <see cref="ElementTreeNodeItem.IsVisible"/> for every currently-loaded node
+        /// under <see cref="_currentRoots"/> against <paramref name="filterText"/>. A node is
+        /// visible when the filter is blank/whitespace, when its own label matches
+        /// (case-insensitive substring), or when any already-loaded descendant matches — matching
+        /// ancestors are also expanded so a deep match is actually visible without the user
+        /// manually drilling down to it. Only already-loaded (expanded at least once) subtrees are
+        /// searched — nodes never expanded yet are not eagerly loaded just to search them, since
+        /// that would defeat the tree's whole lazy-loading design on a large page; this means a
+        /// match that exists only under a never-expanded node won't be found until it's expanded
+        /// (matching <see cref="SetRoots"/>'s existing "eager expand up to a budget" behavior,
+        /// which already loads most of a typical page up front).
+        /// </summary>
+        private void ApplySearchFilter(string? filterText)
+        {
+            if (_currentRoots is null)
+            {
+                return;
+            }
+
+            string trimmed = (filterText ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+            {
+                foreach (var root in _currentRoots)
+                {
+                    SetAllVisible(root);
+                }
+                return;
+            }
+
+            foreach (var root in _currentRoots)
+            {
+                FilterNode(root, trimmed);
+            }
+        }
+
+        private static void SetAllVisible(ElementTreeNodeItem node)
+        {
+            node.IsVisible = true;
+            foreach (var child in node.Children)
+            {
+                if (!ReferenceEquals(child, ElementTreeNodeItem.PlaceholderNode))
+                {
+                    SetAllVisible(child);
+                }
+            }
+        }
+
+        /// <summary>Returns true if <paramref name="node"/> itself or any descendant matches, setting <see cref="ElementTreeNodeItem.IsVisible"/> along the way.</summary>
+        private bool FilterNode(ElementTreeNodeItem node, string filterText)
+        {
+            bool selfMatch = node.Label.Contains(filterText, StringComparison.OrdinalIgnoreCase)
+                || node.FullLabel.Contains(filterText, StringComparison.OrdinalIgnoreCase);
+
+            bool anyDescendantMatch = false;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, ElementTreeNodeItem.PlaceholderNode))
+                {
+                    continue;
+                }
+                if (FilterNode(child, filterText))
+                {
+                    anyDescendantMatch = true;
+                }
+            }
+
+            node.IsVisible = selfMatch || anyDescendantMatch;
+
+            // Expand ancestors of a match so it's actually reachable/visible without the user
+            // manually drilling down -- a match hidden inside a collapsed branch would otherwise
+            // be indistinguishable from "no match".
+            if (anyDescendantMatch && FindContainer(Tree, node) is TreeViewItem container)
+            {
+                container.IsExpanded = true;
+            }
+
+            return node.IsVisible;
+        }
+
         private static class NativeMethods
         {
             public const int GWL_EXSTYLE = -20;
@@ -484,6 +746,20 @@ namespace WindowWorks.App.UI
             public const uint MONITOR_DEFAULTTONEAREST = 2;
             public const int WH_KEYBOARD_LL = 13;
             public const int WM_KEYDOWN = 0x0100;
+            public const uint MAPVK_VK_TO_VSC = 0;
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool GetKeyboardState(byte[] lpKeyState);
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern uint MapVirtualKey(uint uCode, uint uMapType);
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
+                System.Text.StringBuilder pwszBuff, int cchBuff, uint wFlags);
+
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern bool ReleaseCapture();
+            [System.Runtime.InteropServices.DllImport("user32.dll")]
+            public static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
 
             [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
             public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
