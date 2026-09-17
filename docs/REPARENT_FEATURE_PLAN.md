@@ -2233,13 +2233,13 @@ What was implemented for this slice:
   than capping the number of DOM levels shown in the list, per explicit user preference (do not
   hide tree depth — shorten the text instead).
 
-### 6.7 Planned: "View Element Tree" — a tree-navigable alternative to hover-based DOM picking
+### 6.7 "View Element Tree" — a tree-navigable alternative to hover-based DOM picking
 
-Status: **PLANNED, not started.** Proposed by the user after testing the §6.6 hover-based DOM
-box list and finding that, for deep/branchy real pages, precisely hovering the exact desired DOM
-element can be fiddly — a tree view (mirroring the UX of tools like Microsoft's Inspect.exe or a
-browser DevTools Elements panel) offers a more deliberate, navigable alternative alongside (not
-replacing) the hover-and-click flow from §6.6.
+Status: **CODE COMPLETE** (Pieces A, B, and C all implemented and wired). Proposed by the user
+after testing the §6.6 hover-based DOM box list and finding that, for deep/branchy real pages,
+precisely hovering the exact desired DOM element can be fiddly — a tree view (mirroring the UX
+of tools like Microsoft's Inspect.exe or a browser DevTools Elements panel) offers a more
+deliberate, navigable alternative alongside (not replacing) the hover-and-click flow from §6.6.
 
 Agreed design:
 - A new entry, **"View Element Tree,"** is appended to the yellow-box stack whenever the hovered
@@ -2280,18 +2280,29 @@ Agreed design:
   should never race with hover-driven highlight changes at all), rather than only special-casing
   cursor-over-tree-window like the box list's narrower check.
 
-Planned bare-minimum POC breakdown for this feature (agreed before implementation, not yet
-started):
-- **Piece A:** add the pale-orange "View Element Tree" box to the existing yellow-box stack.
-  Visual only — clicking it does nothing yet.
-- **Piece B:** build `PickerElementTreeWindow` (WPF `TreeView`, lazy UIA child-expansion per node,
-  a "Select" button) as a standalone window exercised in isolation (not yet wired into
-  `WindowPickerSession`), to validate tree population/navigation/highlighting UX on its own before
-  integration.
-- **Piece C:** wire it together — clicking "View Element Tree" in the box list hides the box list
-  and shows the tree window at the same anchor; selecting a node (double-click or the "Select"
-  button) re-highlights via `ShowAroundScreenRect` and raises the same confirm pathway as a normal
-  box click, closing the tree window; the hover-poll timer pauses while the tree window is open.
+Bare-minimum POC breakdown for this feature, all three pieces implemented:
+- **Piece A (done):** `PickerAncestorBoxItem.IsElementTreeEntry` plus a pale-orange "View
+  Element Tree" box (new `TreeIcon` glyph, `#CCFFB74D` background) appended to the DOM box list
+  in `WindowPickerSession.BuildDomItems`, above the crop entry. Purely visual at this stage —
+  hover/confirm were no-ops.
+- **Piece B (done):** `PickerElementTreeWindow` (WPF `TreeView`, `NodeSelected`/`NodeConfirmed`
+  events, double-click-or-"Select"-button confirm) built and exercised standalone, bound to the
+  new UI-agnostic `ElementTreeNodeItem` model (`WindowWorks.App.UI`) whose `Children` collection
+  is populated lazily via a captured `childrenLoader` delegate the first time a node is actually
+  expanded — never an eager up-front subtree walk. `DomElementTreeBuilder`
+  (`WindowWorks.App`) bridges live `AutomationElement` UIA calls into this model, reusing
+  `BrowserDomTreeWalker`'s existing Document-root/rect-clipping/display-name logic (extracted
+  into shared public helpers during this piece) rather than duplicating it.
+- **Piece C (done):** wired together in `WindowPickerSession`. Clicking "View Element Tree"
+  calls `OpenElementTree()`, which builds the root via `DomElementTreeBuilder.TryBuildRoot` at
+  the last-known cursor position, hides (not disposes) the box list, and shows the tree window
+  anchored near the cursor. Selecting a node re-highlights via the existing
+  `ShowAroundScreenRect` plumbing; confirming a node (double-click or "Select") synthesizes a
+  `DomElementEntry` and raises the same `DomPickConfirmed` event a hover-box DOM confirm would
+  — downstream code (`ReparentController.StartDomCropReparent`) needed no changes to also accept
+  tree-node confirms. The hover-poll timer (`OnTick`) is paused for its entire body whenever the
+  tree window is open (`_elementTreeWindow is not null` check), not just narrowly around the
+  tree window's own bounds, matching the plan's chosen approach.
 
 Explicitly out of scope for this POC (may be revisited later, not decided against, just not part
 of the bare-minimum POC): search/filter box within the tree, keyboard arrow-key navigation beyond

@@ -64,17 +64,10 @@ namespace WindowWorks.App
         {
             var result = new List<DomElementEntry>();
 
-            if (!NativeMethods.GetClientRect(browserHwnd, out var clientRect))
+            if (!TryGetBrowserClientScreenRect(browserHwnd, out var browserClientScreenRect))
             {
                 return result;
             }
-            var topLeft = new NativeMethods.POINT { X = 0, Y = 0 };
-            NativeMethods.ClientToScreen(browserHwnd, ref topLeft);
-            var browserClientScreenRect = (
-                Left: topLeft.X,
-                Top: topLeft.Y,
-                Right: topLeft.X + (clientRect.Right - clientRect.Left),
-                Bottom: topLeft.Y + (clientRect.Bottom - clientRect.Top));
 
             AutomationElement? element;
             try
@@ -138,19 +131,7 @@ namespace WindowWorks.App
             try
             {
                 var current = element.Current;
-                var rect = current.BoundingRectangle;
-                if (rect.IsEmpty || double.IsInfinity(rect.Width) || double.IsInfinity(rect.Height))
-                {
-                    return false;
-                }
-
-                var candidate = (
-                    Left: (int)Math.Round(rect.Left),
-                    Top: (int)Math.Round(rect.Top),
-                    Right: (int)Math.Round(rect.Right),
-                    Bottom: (int)Math.Round(rect.Bottom));
-
-                if (!RectClipHelper.TryClipToWindowBounds(candidate, browserClientScreenRect, out var clipped))
+                if (!TryGetClippedScreenRect(current, browserClientScreenRect, out var clipped))
                 {
                     return false;
                 }
@@ -160,7 +141,7 @@ namespace WindowWorks.App
                 entry = new DomElementEntry(
                     browserHwnd,
                     current.ControlType?.ProgrammaticName ?? string.Empty,
-                    ResolveDisplayName(current, candidate),
+                    ResolveDisplayName(current, clipped),
                     clipped,
                     isDocumentRoot);
                 return true;
@@ -169,6 +150,139 @@ namespace WindowWorks.App
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Resolves the browser window's client rect in screen pixels (shared by
+        /// <see cref="Discover"/> and <see cref="DomElementTreeBuilder"/>, docs/
+        /// REPARENT_FEATURE_PLAN.md §6.7 Piece B, so both entry points into the DOM picker use
+        /// the exact same clip bounds).
+        /// </summary>
+        public static bool TryGetBrowserClientScreenRect(
+            IntPtr browserHwnd,
+            out (int Left, int Top, int Right, int Bottom) browserClientScreenRect)
+        {
+            browserClientScreenRect = default;
+            if (!NativeMethods.GetClientRect(browserHwnd, out var clientRect))
+            {
+                return false;
+            }
+            var topLeft = new NativeMethods.POINT { X = 0, Y = 0 };
+            NativeMethods.ClientToScreen(browserHwnd, ref topLeft);
+            browserClientScreenRect = (
+                Left: topLeft.X,
+                Top: topLeft.Y,
+                Right: topLeft.X + (clientRect.Right - clientRect.Left),
+                Bottom: topLeft.Y + (clientRect.Bottom - clientRect.Top));
+            return true;
+        }
+
+        /// <summary>
+        /// Walks up from the deepest DOM element under the given screen point to the page's
+        /// <c>Document</c>-type root, same walk as <see cref="Discover"/> but returning only the
+        /// resolved root element itself (docs/REPARENT_FEATURE_PLAN.md §6.7, Piece B) — used by
+        /// <see cref="DomElementTreeBuilder"/> so the tree view's root is defined identically to
+        /// where the hover-based box list's chain (§6.6) stops. Returns <c>null</c> if the point
+        /// isn't over a recognizable DOM element, if no Document-type ancestor is found within
+        /// <see cref="MaxLevels"/>, or if UIA calls fail.
+        /// </summary>
+        public static AutomationElement? TryFindDocumentRoot(IntPtr browserHwnd, int screenX, int screenY)
+        {
+            AutomationElement? element;
+            try
+            {
+                element = AutomationElement.FromPoint(new System.Windows.Point(screenX, screenY));
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (element is null)
+            {
+                return null;
+            }
+
+            var walker = TreeWalker.ControlViewWalker;
+            var seen = new HashSet<AutomationElement>();
+            AutomationElement? current = element;
+            int guard = 0;
+
+            while (current is not null && guard++ < MaxLevels)
+            {
+                if (!seen.Add(current))
+                {
+                    return null;
+                }
+
+                try
+                {
+                    if (current.Current.ControlType == ControlType.Document)
+                    {
+                        return current;
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+
+                try
+                {
+                    current = walker.GetParent(current);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Clips an already-fetched <see cref="AutomationElement.AutomationElementInformation"/>'s
+        /// bounding rect against the browser's client rect, shared by <see cref="TryBuildEntry"/>
+        /// and <see cref="DomElementTreeBuilder"/>. Returns false if the element has no usable
+        /// bounds or the clipped result is empty.
+        /// </summary>
+        public static bool TryGetClippedScreenRect(
+            AutomationElement.AutomationElementInformation current,
+            (int Left, int Top, int Right, int Bottom) browserClientScreenRect,
+            out (int Left, int Top, int Right, int Bottom) clipped)
+        {
+            clipped = default;
+            var rect = current.BoundingRectangle;
+            if (rect.IsEmpty || double.IsInfinity(rect.Width) || double.IsInfinity(rect.Height))
+            {
+                return false;
+            }
+
+            var candidate = (
+                Left: (int)Math.Round(rect.Left),
+                Top: (int)Math.Round(rect.Top),
+                Right: (int)Math.Round(rect.Right),
+                Bottom: (int)Math.Round(rect.Bottom));
+
+            return RectClipHelper.TryClipToWindowBounds(candidate, browserClientScreenRect, out clipped);
+        }
+
+        /// <summary>
+        /// Public wrapper around <see cref="ResolveDisplayName"/> for callers outside this class
+        /// (<see cref="DomElementTreeBuilder"/>, docs/REPARENT_FEATURE_PLAN.md §6.7 Piece B) that
+        /// don't have a pre-clipped rect handy — falls back to the element's raw (unclipped) size
+        /// for the size-hint tail case, which only affects the display label, never the actual
+        /// crop/highlight rect.
+        /// </summary>
+        public static string ResolveDisplayNamePublic(AutomationElement.AutomationElementInformation current)
+        {
+            var rect = current.BoundingRectangle;
+            (int Left, int Top, int Right, int Bottom) sizeHintRect = default;
+            if (!rect.IsEmpty && !double.IsInfinity(rect.Width) && !double.IsInfinity(rect.Height))
+            {
+                sizeHintRect = (0, 0, (int)Math.Round(rect.Width), (int)Math.Round(rect.Height));
+            }
+            return ResolveDisplayName(current, sizeHintRect);
         }
 
         /// <summary>

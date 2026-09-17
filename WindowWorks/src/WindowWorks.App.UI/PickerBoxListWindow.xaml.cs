@@ -18,6 +18,15 @@ namespace WindowWorks.App.UI
         public string Label { get; }
         public bool IsChildHwndPick { get; }
         public bool IsCropEntry { get; }
+
+        /// <summary>
+        /// Set for the pale-orange "View Element Tree" mode-switch entry (docs/
+        /// REPARENT_FEATURE_PLAN.md Phase 6, section 6.7) appended to the box list whenever the
+        /// hovered top-level window is a Chromium-family browser. Unlike <see cref="IsCropEntry"/>
+        /// and a real DOM/native pick, clicking this entry does not confirm a pick at all -- it is
+        /// a mode switch that opens a separate tree-view picker surface (Piece B/C).
+        /// </summary>
+        public bool IsElementTreeEntry { get; }
         public uint ProcessId { get; }
         public DateTime ProcessStartTimeUtc { get; }
         public string? ClassName { get; }
@@ -64,7 +73,8 @@ namespace WindowWorks.App.UI
             object? capturedIdentity = null,
             object? domEntry = null,
             int indentLevel = 0,
-            string? fullLabel = null)
+            string? fullLabel = null,
+            bool isElementTreeEntry = false)
         {
             Hwnd = hwnd;
             Label = label;
@@ -78,6 +88,7 @@ namespace WindowWorks.App.UI
             DomEntry = domEntry;
             IndentLevel = indentLevel;
             FullLabel = fullLabel ?? label;
+            IsElementTreeEntry = isElementTreeEntry;
         }
     }
 
@@ -93,9 +104,20 @@ namespace WindowWorks.App.UI
         public event EventHandler<PickerAncestorBoxItem>? BoxHovered;
         public event EventHandler<PickerAncestorBoxItem>? BoxConfirmed;
 
+        /// <summary>
+        /// Raised when the user clicks the top-right Close button, to let the owning session
+        /// cancel the whole picker (mirrors pressing Escape).
+        /// </summary>
+        public event EventHandler? CloseRequested;
+
         public PickerBoxListWindow()
         {
             InitializeComponent();
+        }
+
+        private void OnCloseClick(object sender, RoutedEventArgs e)
+        {
+            CloseRequested?.Invoke(this, EventArgs.Empty);
         }
 
         private void OnLoaded(object? sender, RoutedEventArgs e)

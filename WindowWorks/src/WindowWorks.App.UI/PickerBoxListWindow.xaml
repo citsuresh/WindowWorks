@@ -8,7 +8,14 @@
         <local:IndentLevelToMarginConverter x:Key="IndentLevelToMarginConverter" />
     </Window.Resources>
     <Border Background="#E63C3C3C" BorderBrush="#CCFFFF00" BorderThickness="1" CornerRadius="3" Padding="2">
-        <ItemsControl x:Name="BoxList" HorizontalContentAlignment="Stretch">
+        <DockPanel LastChildFill="True">
+            <Button x:Name="CloseButton" DockPanel.Dock="Top" HorizontalAlignment="Right" Width="22" Height="22"
+                    Padding="0" Margin="0,0,0,2" Background="Transparent" BorderBrush="#55FFFFFF" BorderThickness="1"
+                    Foreground="White" Focusable="False" ToolTip="Close" Click="OnCloseClick">
+                <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="11"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Button>
+            <ItemsControl x:Name="BoxList" HorizontalContentAlignment="Stretch">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <Border x:Name="BoxBorder" HorizontalAlignment="Stretch"
@@ -26,6 +33,10 @@
                                   DockPanel.Dock="Left"
                                   Stretch="Uniform" Stroke="Black" StrokeThickness="1.6" Visibility="Collapsed"
                                   Data="M2,0 L2,8 L10,8 M4,2 L12,2 L12,10" />
+                            <Path x:Name="TreeIcon" Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center"
+                                  DockPanel.Dock="Left"
+                                  Stretch="Uniform" Stroke="Black" StrokeThickness="1.4" Visibility="Collapsed"
+                                  Data="M2,1 L2,11 M2,3 L8,3 M2,6 L8,6 M2,9 L8,9" />
                             <TextBlock Text="{Binding FullLabel}" Foreground="Black" FontSize="12" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                         </DockPanel>
@@ -36,12 +47,18 @@
                             <Setter TargetName="CropIcon" Property="Visibility" Value="Visible" />
                             <Setter TargetName="ReparentIcon" Property="Visibility" Value="Collapsed" />
                         </DataTrigger>
+                        <DataTrigger Binding="{Binding IsElementTreeEntry}" Value="True">
+                            <Setter TargetName="BoxBorder" Property="Background" Value="#CCFFB74D" />
+                            <Setter TargetName="TreeIcon" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="ReparentIcon" Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
                         <Trigger SourceName="BoxBorder" Property="IsMouseOver" Value="True">
                             <Setter TargetName="BoxBorder" Property="Opacity" Value="1" />
                         </Trigger>
                     </DataTemplate.Triggers>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
-        </ItemsControl>
-    </Border>
-</Window>
+                    </ItemsControl>
+                </DockPanel>
+            </Border>
+        </Window>

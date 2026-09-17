@@ -39,6 +39,8 @@ namespace WindowWorks.App
         private readonly DispatcherTimer _timer;
         private readonly PickerHighlightWindow _highlight = new();
         private readonly PickerBoxListWindow _boxList = new();
+        private PickerElementTreeWindow? _elementTreeWindow;
+        private IntPtr _elementTreeBrowserHwnd = IntPtr.Zero;
         private readonly bool _includePopOutPicks;
         private readonly bool _includeCropEntry;
         private readonly uint _ownProcessId;
@@ -94,6 +96,7 @@ namespace WindowWorks.App
             _cropOnlyMode = !includePopOutPicks && includeCropEntry;
             _boxList.BoxHovered += OnBoxHovered;
             _boxList.BoxConfirmed += OnBoxConfirmed;
+            _boxList.CloseRequested += OnBoxListCloseRequested;
 
             _timer = new DispatcherTimer(DispatcherPriority.Background)
             {
@@ -141,6 +144,11 @@ namespace WindowWorks.App
             Cancelled?.Invoke(this, EventArgs.Empty);
         }
 
+        private void OnBoxListCloseRequested(object? sender, EventArgs e)
+        {
+            Cancel();
+        }
+
         private void OnTick(object? sender, EventArgs e)
         {
             if (_disposed)
@@ -157,6 +165,16 @@ namespace WindowWorks.App
                 }
 
                 if (!NativeMethods.GetCursorPos(out var pt))
+                {
+                    return;
+                }
+
+                // Hover-discovery pause while the tree view is open (docs/REPARENT_FEATURE_PLAN.md
+                // §6.7, Piece C): tree navigation should never race with hover-driven highlight/box
+                // list changes, so the whole hover-poll loop is skipped entirely while the tree
+                // window is up, rather than only special-casing cursor-over-tree-window like the
+                // narrower box-list check below.
+                if (_elementTreeWindow is not null)
                 {
                     return;
                 }
@@ -188,12 +206,12 @@ namespace WindowWorks.App
                     return;
                 }
 
-                // Phase 6 (bare-minimum slice, docs/REPARENT_FEATURE_PLAN.md §Phase 6): if the
-                // hovered top-level window is a Chromium-family browser, switch discovery from
-                // the native ancestor-chain walk to a UI Automation DOM-tree walk rooted at the
-                // page's Document element, still driving the same yellow-box list/highlight UX.
-                // This slice is visual-only — confirming a DOM box does not yet wire into
-                // crop-and-reparent (that's a later piece); it currently just cancels the session.
+                // Phase 6 (docs/REPARENT_FEATURE_PLAN.md §Phase 6): if the hovered top-level
+                // window is a Chromium-family browser, switch discovery from the native
+                // ancestor-chain walk to a UI Automation DOM-tree walk rooted at the page's
+                // Document element, still driving the same yellow-box list/highlight UX.
+                // Confirming a DOM box (or a tree-node confirm, §6.7 Piece C) drives a real
+                // crop-and-reparent via DomPickConfirmed.
                 var topLevelEntry = FindTopLevelEntry(chain);
                 if (topLevelEntry is not null && BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))
                 {
@@ -356,7 +374,7 @@ namespace WindowWorks.App
             System.Collections.Generic.List<DomElementEntry> domEntries,
             bool includeCropEntry)
         {
-            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(domEntries.Count + (includeCropEntry ? 1 : 0));
+            var items = new System.Collections.Generic.List<PickerAncestorBoxItem>(domEntries.Count + 1 + (includeCropEntry ? 1 : 0));
             for (int i = 0; i < domEntries.Count; i++)
             {
                 var entry = domEntries[i];
@@ -372,6 +390,13 @@ namespace WindowWorks.App
                     indentLevel: indentLevel,
                     fullLabel: label));
             }
+
+            items.Add(new PickerAncestorBoxItem(
+                IntPtr.Zero,
+                "View Element Tree",
+                isChildHwndPick: false,
+                isElementTreeEntry: true));
+
             if (includeCropEntry)
             {
                 items.Add(new PickerAncestorBoxItem(
@@ -391,6 +416,12 @@ namespace WindowWorks.App
             }
             if (item.IsCropEntry)
             {
+                return;
+            }
+            if (item.IsElementTreeEntry)
+            {
+                // Mode-switch entry (docs/REPARENT_FEATURE_PLAN.md §6.7): not a highlight target
+                // itself, hovering it leaves whatever was already highlighted as-is.
                 return;
             }
             if (item.DomEntry is DomElementEntry domEntry)
@@ -427,6 +458,16 @@ namespace WindowWorks.App
                 var browserTopLevelEntry = _lastHoveredBrowserTopLevelEntry;
                 Dispose();
                 DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, browserTopLevelEntry));
+                return;
+            }
+
+            if (item.IsElementTreeEntry)
+            {
+                // §6.7 Piece C: switches to the tree-view picker surface. The box list itself is
+                // hidden (not disposed -- the session stays alive so Escape/re-invocation still
+                // works while the tree window is open) and hover-poll re-discovery is paused via
+                // the _elementTreeWindow-not-null check at the top of OnTick.
+                OpenElementTree();
                 return;
             }
 
@@ -515,6 +556,148 @@ namespace WindowWorks.App
             }
         }
 
+        /// <summary>
+        /// Opens the tree-view picker surface (docs/REPARENT_FEATURE_PLAN.md §6.7, Piece C) for
+        /// the currently-hovered Chromium-family browser, rooted at the same Document element the
+        /// hover-based box list (§6.6) would walk to under the last-known cursor position. Hides
+        /// (not disposes) the box list so a single picker surface is visually active at a time,
+        /// per the plan's "one picker UI active" model.
+        /// </summary>
+        private void OpenElementTree()
+        {
+            if (_lastHoveredBrowserTopLevelEntry is null)
+            {
+                // Nothing sensible to root the tree at (e.g. hover state changed between the
+                // click landing and this running) -- leave the box list as the active surface
+                // rather than opening an empty/unusable tree window.
+                return;
+            }
+
+            var browserHwnd = _lastHoveredBrowserTopLevelEntry.Hwnd;
+            var root = DomElementTreeBuilder.TryBuildRoot(browserHwnd, _lastPoint.X, _lastPoint.Y);
+            if (root is null)
+            {
+                return;
+            }
+
+            _elementTreeBrowserHwnd = browserHwnd;
+
+            var treeWindow = new PickerElementTreeWindow();
+            treeWindow.SetRoots(new[] { root });
+            treeWindow.NodeSelected += OnElementTreeNodeSelected;
+            treeWindow.NodeConfirmed += OnElementTreeNodeConfirmed;
+            treeWindow.Closed += OnElementTreeWindowClosed;
+            treeWindow.RefreshRequested += OnElementTreeRefreshRequested;
+            treeWindow.CloseRequested += OnElementTreeCloseRequested;
+            _elementTreeWindow = treeWindow;
+
+            // Show the tree at the same screen location the box list was occupying (§6.7 user
+            // request) rather than re-anchoring near the raw cursor point, so switching from the
+            // box list to the tree view feels like an in-place mode swap, not a jump. The box
+            // list's Left/Top are already DIPs (WPF window coordinates), so no DPI conversion is
+            // needed here unlike PositionNear's screen-pixel-based anchoring.
+            treeWindow.Left = _boxList.Left;
+            treeWindow.Top = _boxList.Top;
+            _boxList.Hide();
+
+            treeWindow.Show();
+        }
+
+        /// <summary>
+        /// Rebuilds the tree from a fresh live UIA walk at the same anchor point the tree was
+        /// originally opened at, for when the underlying page has changed since (e.g. an SPA
+        /// re-rendered its DOM). <see cref="ElementTreeNodeItem"/> nodes are immutable snapshots
+        /// captured at build time, not live-bound to the underlying UIA element, so refreshing
+        /// means building a whole new root rather than mutating the existing one.
+        /// </summary>
+        private void OnElementTreeRefreshRequested(object? sender, EventArgs e)
+        {
+            if (_disposed || _elementTreeWindow is not PickerElementTreeWindow treeWindow)
+            {
+                return;
+            }
+
+            var root = DomElementTreeBuilder.TryBuildRoot(_elementTreeBrowserHwnd, _lastPoint.X, _lastPoint.Y);
+            if (root is null)
+            {
+                // Leave the previous (now possibly stale) tree displayed rather than clearing it
+                // to nothing -- a failed refresh should not be more disruptive than no refresh.
+                return;
+            }
+
+            treeWindow.SetRoots(new[] { root });
+        }
+
+        private void OnElementTreeNodeSelected(object? sender, ElementTreeNodeItem node)
+        {
+            if (_disposed || !node.HasScreenRect)
+            {
+                return;
+            }
+
+            _highlight.ShowAroundScreenRect(
+                _elementTreeBrowserHwnd,
+                node.ScreenRect.Left,
+                node.ScreenRect.Top,
+                node.ScreenRect.Right,
+                node.ScreenRect.Bottom);
+        }
+
+        private void OnElementTreeNodeConfirmed(object? sender, ElementTreeNodeItem node)
+        {
+            if (_disposed || _lastHoveredBrowserTopLevelEntry is null || !node.HasScreenRect)
+            {
+                return;
+            }
+
+            var browserTopLevelEntry = _lastHoveredBrowserTopLevelEntry;
+            var domEntry = new DomElementEntry(
+                _elementTreeBrowserHwnd,
+                controlTypeName: string.Empty,
+                name: node.Label,
+                clippedScreenRect: node.ScreenRect,
+                isDocumentRoot: false);
+
+            // Close the tree window (raises OnElementTreeWindowClosed, which clears
+            // _elementTreeWindow) before disposing the rest of the session, same ordering as the
+            // box-list confirm paths above -- the confirm event is the last thing raised.
+            CloseElementTree();
+            Dispose();
+            DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, browserTopLevelEntry));
+        }
+
+        private void OnElementTreeWindowClosed(object? sender, EventArgs e)
+        {
+            if (_elementTreeWindow is PickerElementTreeWindow treeWindow)
+            {
+                treeWindow.NodeSelected -= OnElementTreeNodeSelected;
+                treeWindow.NodeConfirmed -= OnElementTreeNodeConfirmed;
+                treeWindow.Closed -= OnElementTreeWindowClosed;
+                treeWindow.RefreshRequested -= OnElementTreeRefreshRequested;
+                treeWindow.CloseRequested -= OnElementTreeCloseRequested;
+            }
+            _elementTreeWindow = null;
+        }
+
+        /// <summary>
+        /// The tree window's Close button cancels the whole picker operation (mirrors the box
+        /// list's Close button / Escape), not just this tree window on its own.
+        /// </summary>
+        private void OnElementTreeCloseRequested(object? sender, EventArgs e)
+        {
+            Cancel();
+        }
+
+        private void CloseElementTree()
+        {
+            if (_elementTreeWindow is PickerElementTreeWindow treeWindow)
+            {
+                // Closing raises OnElementTreeWindowClosed synchronously, which unsubscribes and
+                // clears _elementTreeWindow -- no separate cleanup needed here.
+                try { treeWindow.Close(); } catch { }
+            }
+        }
+
         public void Dispose()
         {
             if (_disposed)
@@ -523,9 +706,10 @@ namespace WindowWorks.App
             }
             _disposed = true;
             try { _timer.Stop(); } catch { }
-            try { _boxList.BoxHovered -= OnBoxHovered; _boxList.BoxConfirmed -= OnBoxConfirmed; } catch { }
+            try { _boxList.BoxHovered -= OnBoxHovered; _boxList.BoxConfirmed -= OnBoxConfirmed; _boxList.CloseRequested -= OnBoxListCloseRequested; } catch { }
             try { _highlight.Close(); } catch { }
             try { _boxList.Close(); } catch { }
+            CloseElementTree();
         }
 
         private static class NativeMethods
