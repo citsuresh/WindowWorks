@@ -11,8 +11,58 @@ namespace WindowWorks.App
         /// the app is tray-only. All long-lived services are owned by AppContext and disposed on exit.
         /// </summary>
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
+            // Temporary manual-only verification hooks for docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md
+            // §4 Phase E sub-phases 1-2 (CDP bridge proof of concept + element correlation). Not
+            // part of normal app startup — only run when explicitly launched with --cdp-poc or
+            // --cdp-poc-correlate, print their report to the console/a temp file, and exit
+            // immediately without starting the tray app. Kept intentionally past sub-phase 1 (per
+            // explicit user request) to support sub-phase 2 manual verification too.
+            if (args.Length > 0 && string.Equals(args[0], "--cdp-poc", StringComparison.OrdinalIgnoreCase))
+            {
+                string report;
+                try
+                {
+                    report = Cdp.CdpBridgePoc.RunAsync().GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    report = "CDP PoC failed: " + ex;
+                }
+
+                Console.WriteLine(report);
+                try
+                {
+                    var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cdp-poc-report.txt");
+                    System.IO.File.WriteAllText(logPath, report);
+                }
+                catch { }
+                return;
+            }
+
+            if (args.Length > 0 && string.Equals(args[0], "--cdp-poc-correlate", StringComparison.OrdinalIgnoreCase))
+            {
+                string report;
+                try
+                {
+                    report = Cdp.CdpBridgePoc.RunCorrelationAsync().GetAwaiter().GetResult();
+                }
+                catch (Exception ex)
+                {
+                    report = "CDP correlation PoC failed: " + ex;
+                }
+
+                Console.WriteLine(report);
+                try
+                {
+                    var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cdp-poc-correlate-report.txt");
+                    System.IO.File.WriteAllText(logPath, report);
+                }
+                catch { }
+                return;
+            }
+
             // Single-instance guard: WindowWorks is a tray-only app with global hotkeys, so
             // running a second instance would register duplicate hotkeys/tray icons and race
             // over the same shared state files. Use a named mutex to detect an existing

@@ -60,8 +60,10 @@
 ### Phase E — DevTools (CDP) bridge as an additive second property section — IN PROGRESS
 
 - **Status:** Sub-phase 1 (CDP bridge proof of concept) ✅ COMPLETE, manually verified.
-  Sub-phases 2-5 not yet started. Full Pre-Build Decomposition confirmed with the user before
-  sub-phase 1 implementation began, per this project's standing workflow.
+  Sub-phase 2 (element correlation) ✅ COMPLETE, manually verified against a real Brave instance
+  with confidence 0.98-0.99. Sub-phases 3-5 not yet started. Full Pre-Build Decomposition
+  confirmed with the user before each sub-phase's implementation began, per this project's
+  standing workflow.
 - **Sub-phase 1 — CDP bridge proof of concept:** Hand-rolled WebSocket + JSON-RPC client
   (`WindowWorks.App/Cdp/CdpClient.cs`, `CdpTarget.cs`) chosen over a NuGet CDP library, since the
   project deliberately keeps external dependencies minimal (only one existing NuGet package,
@@ -93,6 +95,45 @@
   - No other issues found: build succeeds; no existing CDP/WebSocket/JSON-RPC mechanism elsewhere
     in the codebase is duplicated; the new `--cdp-poc` command-line branch in `Program.cs` does not
     alter normal (no-args) startup behavior.
+- **Sub-phase 2 — Element correlation:** `CdpDomCorrelator.CorrelateAsync`
+  (`WindowWorks.App/Cdp/CdpDomCorrelator.cs`, `CdpDomCorrelationResult.cs`) maps a UIA-picked
+  browser DOM element to its corresponding CDP DOM node via a two-step heuristic: (1) calibrate a
+  screen-px-to-CSS-px affine transform using the UIA "Document" ancestor's own bounding rect
+  (physical screen pixels — the visible content area) against `Page.getLayoutMetrics`'s
+  `cssVisualViewport`; (2) transform the picked element's rect to a CSS-pixel point, hit-test via
+  `DOM.getNodeForLocation`, then verify the match by transforming the matched node's CDP box model
+  back to screen pixels and computing intersection-over-union (IoU) against the original UIA rect
+  as a confidence score.
+  - Two real bugs were found and fixed during manual testing against a live Brave instance:
+    (a) **DPI-awareness gap** — WindowWorks.App has no DPI manifest, so on a scaled display (tested
+    at 150%) all Win32/UIA calls run in a virtualized 96-DPI coordinate space while CDP/Chromium
+    reports true physical pixels, producing a spurious ~1.5x "calibration scale" that looked like a
+    correlator bug. Fixed by scoping `SetThreadDpiAwarenessContext(PER_MONITOR_AWARE_V2)` to just
+    the correlation call in `CdpBridgePoc.RunCorrelationAsync` (restored in a `finally` block) —
+    deliberately scoped to this one code path rather than making the whole app DPI-aware via
+    manifest, which is deferred as a larger, separately-tested change per explicit user decision.
+    (b) Two independent hit-test calls (`Discover()` and a separate `TryFindDocumentRoot()` call)
+    could resolve slightly different rects for what should be the same Document element. Fixed by
+    deriving the Document anchor rect from the same `Discover()` chain instead of a second
+    independent hit-test.
+  - Manually verified end-to-end against a real Brave instance: correctly matched an `<h1>` heading
+    (confidence 0.98) and an `<a>` hyperlink (confidence 0.99) hovered on `https://example.com/`.
+  - Regression Audit (code-review subagent, independent of implementation rationale) found two
+    in-scope diagnostic-quality issues, both fixed before this sub-phase was considered done:
+    - The initial `SetThreadDpiAwarenessContext` call's own success wasn't checked, so a failure
+      (e.g. an OS predating Windows 10 1703's PMv2 support) would silently proceed in the wrong
+      coordinate space with no diagnostic distinguishing it from a genuine non-match. Fixed by
+      appending a warning line to the harness report when the initial call fails.
+    - `CorrelateAsync`'s single broad `catch (Exception)` could mask a real CDP-response-shape bug
+      (e.g. an unexpected JSON field type causing `JsonNode.GetValue<T>()` to throw) as an ordinary
+      "no match found" result. Fixed by narrowing the catch to the specific exception types that
+      represent legitimate heuristic-can-fail cases (JSON-shape/type mismatches, WebSocket
+      timeouts/cancellation), letting any other exception type propagate as a genuine defect.
+  - No other issues found: build succeeds with no new warnings; `BrowserDomTreeWalker`/
+    `RectClipHelper` conventions are reused consistently, not duplicated; the new
+    `--cdp-poc-correlate` command-line branch in `Program.cs` does not alter normal (no-args)
+    startup behavior; the DPI-awareness context switch is thread-local only and does not leak to
+    other threads or persist after the correlation call returns.
 
 
 ## 1. Goal
