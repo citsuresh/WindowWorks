@@ -8,6 +8,6 @@ namespace WindowWorks.App.UI.Services
         string? ShowColorPicker(string? initialHex);
 
         // Show a shortcut capture dialog (existing ShortcutCaptureWindow) and return captured string or null
-        string? ShowShortcutCapture(string? current);
+        string? ShowShortcutCapture(string? current, bool keyboardOnly = false);
     }
 }

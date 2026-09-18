@@ -17,7 +17,11 @@ namespace WindowWorks.App
         public uint ProcessId { get; }
         public DateTime ProcessStartTimeUtc { get; }
         public string? AutomationRuntimeId { get; }
-        public ReparentEngine.CapturedWindowIdentity CapturedIdentity { get; }
+        /// <summary>
+        /// Present for reparenting picks. Inspector-mode discovery defers UIA identity acquisition
+        /// to its bounded worker so the picker UI never calls a target UIA provider.
+        /// </summary>
+        public ReparentEngine.CapturedWindowIdentity? CapturedIdentity { get; }
 
         public AncestorChainEntry(
             IntPtr hwnd,
@@ -27,7 +31,7 @@ namespace WindowWorks.App
             uint processId,
             DateTime processStartTimeUtc,
             string? automationRuntimeId,
-            ReparentEngine.CapturedWindowIdentity capturedIdentity)
+            ReparentEngine.CapturedWindowIdentity? capturedIdentity)
         {
             Hwnd = hwnd;
             ClassName = className;
@@ -36,7 +40,7 @@ namespace WindowWorks.App
             ProcessId = processId;
             ProcessStartTimeUtc = processStartTimeUtc;
             AutomationRuntimeId = automationRuntimeId;
-            CapturedIdentity = capturedIdentity ?? throw new ArgumentNullException(nameof(capturedIdentity));
+            CapturedIdentity = capturedIdentity;
         }
     }
 
@@ -67,7 +71,11 @@ namespace WindowWorks.App
         /// docs/KNOWN_OPEN_FINDINGS.md for the current, accepted, unfixed limitation this leaves
         /// behind — picking such a window produces a blank reparented frame with no warning).
         /// </summary>
-        public static List<AncestorChainEntry> Discover(int screenX, int screenY, uint excludeProcessId = 0)
+        public static List<AncestorChainEntry> Discover(
+            int screenX,
+            int screenY,
+            uint excludeProcessId = 0,
+            bool includeAutomationRuntimeId = true)
         {
             var result = new List<AncestorChainEntry>();
             var seen = new HashSet<IntPtr>();
@@ -97,7 +105,8 @@ namespace WindowWorks.App
                         out uint pid,
                         out DateTime processStartTimeUtc,
                         out string? className,
-                        out string? automationRuntimeId))
+                        out string? automationRuntimeId,
+                        includeAutomationRuntimeId))
                     {
                         current = NativeMethods.GetAncestor(current, NativeMethods.GA_PARENT);
                         continue;
@@ -105,6 +114,14 @@ namespace WindowWorks.App
                     bool isOwnProcess = excludeProcessId != 0 && pid == excludeProcessId;
                     if (!isOwnProcess)
                     {
+                        var capturedIdentity = includeAutomationRuntimeId
+                            ? ReparentEngine.CaptureIdentity(
+                                current,
+                                pid,
+                                processStartTimeUtc,
+                                className,
+                                automationRuntimeId)
+                            : null;
                         result.Add(new AncestorChainEntry(
                             current,
                             className ?? string.Empty,
@@ -113,12 +130,7 @@ namespace WindowWorks.App
                             pid,
                             processStartTimeUtc,
                             automationRuntimeId,
-                            ReparentEngine.CaptureIdentity(
-                                current,
-                                pid,
-                                processStartTimeUtc,
-                                className,
-                                automationRuntimeId)));
+                            capturedIdentity));
                     }
 
                     if (isTopLevel)

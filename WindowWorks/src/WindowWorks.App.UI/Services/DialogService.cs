@@ -30,11 +30,11 @@ namespace WindowWorks.App.UI.Services
             return null;
         }
 
-        public string? ShowShortcutCapture(string? current)
+        public string? ShowShortcutCapture(string? current, bool keyboardOnly = false)
         {
             try
             {
-                var win = new ShortcutCaptureWindow();
+                var win = new ShortcutCaptureWindow { KeyboardOnly = keyboardOnly };
                 try { if (!string.IsNullOrWhiteSpace(current)) win.TxtCurrent.Text = current; } catch { }
 
                 // Prefer to center the capture window over the window that currently has focus

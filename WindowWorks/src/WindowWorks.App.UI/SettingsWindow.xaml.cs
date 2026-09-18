@@ -590,16 +590,22 @@ namespace WindowWorks.App.UI
                     string? cp = null;
                     string? er = null;
                     string? wrHotkey = null;
+                    string? propertyInspectorHotkey = null;
                     if (settingsDict.TryGetValue("HotkeyCommandPalette", out var cpObj) && cpObj is string cpStr) cp = cpStr;
                     if (settingsDict.TryGetValue("HotkeyEmergencyReset", out var erObj) && erObj is string erStr) er = erStr;
                     if (settingsDict.TryGetValue("HotkeyWindowReparent", out var wrObj) && wrObj is string wrStr) wrHotkey = wrStr;
+                    if (settingsDict.TryGetValue("HotkeyPropertyInspector", out var piObj) && piObj is string piStr) propertyInspectorHotkey = piStr;
                     try
                     {
                         // Only apply hotkey changes if the Shortcuts section was modified to avoid re-registering unchanged hotkeys
                         if (_sections.TryGetValue("Shortcuts", out var shortcutsSection) && shortcutsSection.Dirty)
                         {
-                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null, wrHotkey);
-                            // Optionally, UI could surface res to show per-key errors. For now we ignore the result.
+                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null, wrHotkey, propertyInspectorHotkey);
+                            RestoreFailedHotkeySetting(settingsDict, "HotkeyCommandPalette", 0, res);
+                            RestoreFailedHotkeySetting(settingsDict, "HotkeyEmergencyReset", 1, res);
+                            RestoreFailedHotkeySetting(settingsDict, "HotkeyWindowReparent", 2, res);
+                            RestoreFailedHotkeySetting(settingsDict, "HotkeyPropertyInspector", 3, res);
+                            ShowHotkeyRegistrationFailure(res);
                         }
                     }
                     catch { }
@@ -648,6 +654,41 @@ namespace WindowWorks.App.UI
             {
                 try { UnregisterActiveInstance(); } catch { }
                 this.Close();
+            }
+        }
+
+        private void RestoreFailedHotkeySetting(
+            Dictionary<string, object?> settingsDict,
+            string settingName,
+            int bindingId,
+            Services.HotkeyApplyResult result)
+        {
+            if (!result.BindingSuccess.TryGetValue(bindingId, out bool succeeded)
+                || succeeded
+                || _initialDict is null
+                || !_initialDict.TryGetValue(settingName, out var previousValue))
+            {
+                return;
+            }
+
+            settingsDict[settingName] = previousValue;
+        }
+
+        private static void ShowHotkeyRegistrationFailure(Services.HotkeyApplyResult result)
+        {
+            foreach (var entry in result.BindingSuccess)
+            {
+                if (!entry.Value)
+                {
+                    result.BindingErrorMessage.TryGetValue(entry.Key, out var message);
+                    result.BindingShortcut.TryGetValue(entry.Key, out var shortcut);
+                    MessageBox.Show(
+                        $"The shortcut '{shortcut}' was not applied. {message}",
+                        "WindowWorks",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                    return;
+                }
             }
         }
 

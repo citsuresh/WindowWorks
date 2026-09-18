@@ -45,6 +45,9 @@ namespace WindowWorks.App.Models
         // Invokes the (currently naive, placeholder) window picker — see ReparentController.
         public string HotkeyWindowReparent { get; set; } = "Ctrl+Alt+P";
 
+        // Property Inspector: opens a native UI Automation read-only inspection picker.
+        public string HotkeyPropertyInspector { get; set; } = "Ctrl+Alt+I";
+
         // Window Reparenting: master enable/disable toggle for the whole feature (§9). Default
         // ON — ships enabled by default, not gated behind an extra opt-in step. When off, the
         // reparent hotkey/picker must be fully inert (no picker invocable, no stray UI); this

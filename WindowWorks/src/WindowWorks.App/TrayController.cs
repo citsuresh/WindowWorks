@@ -23,6 +23,7 @@ namespace WindowWorks.App
         private readonly ClickThroughManager _clickThroughManager;
         private readonly ReparentController? _reparentController;
         public event EventHandler? ExitRequested;
+        public event EventHandler? InspectUiElementRequested;
 
         public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController? reparentController = null)
         {
@@ -148,6 +149,7 @@ namespace WindowWorks.App
             }
             menu.Items.Add(presetsMenu);
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripMenuItem("Inspect UI Element...", null, (s, e) => InspectUiElementRequested?.Invoke(this, EventArgs.Empty)));
             menu.Items.Add(new ToolStripMenuItem("Onboarding", null, (s, e) => ShowOnboarding()));
             menu.Items.Add(new ToolStripMenuItem("Open presets folder", null, (s, e) => _persistence.OpenAppFolder())); // Ensure method reference remains if any items existed previously
             menu.Items.Add(new ToolStripMenuItem("Reset All", null, (s, e) =>

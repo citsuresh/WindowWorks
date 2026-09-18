@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.IO;
@@ -42,6 +43,24 @@ namespace WindowWorks.App
         public ModifierModeEventArgs(IntPtr hwnd) { Hwnd = hwnd; }
     }
 
+    internal sealed class HotkeyRegistrationOutcome
+    {
+        public HotkeyRegistrationOutcome(int id, string configuredShortcut, bool succeeded, int errorCode, bool previousRegistrationRestored)
+        {
+            Id = id;
+            ConfiguredShortcut = configuredShortcut;
+            Succeeded = succeeded;
+            ErrorCode = errorCode;
+            PreviousRegistrationRestored = previousRegistrationRestored;
+        }
+
+        public int Id { get; }
+        public string ConfiguredShortcut { get; }
+        public bool Succeeded { get; }
+        public int ErrorCode { get; }
+        public bool PreviousRegistrationRestored { get; }
+    }
+
     /// <summary>
     /// Registers system hotkeys and installs a low-level mouse hook (WH_MOUSE_LL) to detect gestures.
     /// Minimal implementation: exposes events for the app to react to.
@@ -74,7 +93,7 @@ namespace WindowWorks.App
         private readonly Models.AppSettings _settings;
         private readonly System.Collections.Generic.List<int> _registeredHotkeyIds = new();
         // Tracks the last hotkey string actually applied for each id (0=CommandPalette,
-        // 1=EmergencyReset, 2=WindowReparent), so ApplyHotkeySettings can re-register only the
+        // 1=EmergencyReset, 2=WindowReparent, 3=PropertyInspector), so ApplyHotkeySettings can re-register only the
         // id(s) whose setting actually changed instead of tearing down and re-claiming every
         // hotkey on every save -- unregistering an unchanged hotkey and immediately
         // re-registering it is an unnecessary race that can transiently fail (error 1408) even
@@ -140,7 +159,8 @@ namespace WindowWorks.App
         private void HandleHotkeyMessage(int id, HotkeyModifiers mods, Keys key)
         {
             // Handle special registered hotkeys by id when known by convention
-            // id==0: HotkeyCommandPalette, id==1: HotkeyEmergencyReset, id==2: HotkeyWindowReparent
+            // id==0: HotkeyCommandPalette, id==1: HotkeyEmergencyReset, id==2: HotkeyWindowReparent,
+            // id==3: HotkeyPropertyInspector
             // (Click-Through Reset previously reserved id==2; that hotkey registration was removed
             // to avoid conflicts, freeing id==2 for the reparent picker hotkey below.)
 
@@ -370,19 +390,30 @@ namespace WindowWorks.App
 
         public bool RegisterHotkey(int id, HotkeyModifiers mods, Keys key)
         {
-            if (_msgWindow == null) return false;
+            return TryRegisterHotkey(id, mods, key, out _);
+        }
+
+        private bool TryRegisterHotkey(int id, HotkeyModifiers mods, Keys key, out int errorCode)
+        {
+            errorCode = 0;
+            if (_msgWindow == null)
+            {
+                return false;
+            }
+
             bool ok = NativeMethods.RegisterHotKey(_msgWindow.Handle, id, (uint)mods, (uint)key);
             if (!ok)
             {
-                int err = Marshal.GetLastWin32Error();
+                errorCode = Marshal.GetLastWin32Error();
+                int registrationErrorCode = errorCode;
                 // Notify listeners on UI context if available
                 if (_syncContext != null)
                 {
-                    _syncContext.Post(_ => HotkeyRegistrationFailed?.Invoke(this, new HotkeyRegistrationFailedEventArgs(mods, key, err)), null);
+                    _syncContext.Post(_ => HotkeyRegistrationFailed?.Invoke(this, new HotkeyRegistrationFailedEventArgs(mods, key, registrationErrorCode)), null);
                 }
                 else
                 {
-                    HotkeyRegistrationFailed?.Invoke(this, new HotkeyRegistrationFailedEventArgs(mods, key, err));
+                    HotkeyRegistrationFailed?.Invoke(this, new HotkeyRegistrationFailedEventArgs(mods, key, registrationErrorCode));
                 }
             }
             else
@@ -412,7 +443,15 @@ namespace WindowWorks.App
         /// </summary>
         public void ApplyHotkeySettings(Models.AppSettings settings)
         {
-            if (settings == null) return;
+            _ = ApplyHotkeySettingsWithOutcomes(settings);
+        }
+
+        internal IReadOnlyDictionary<int, HotkeyRegistrationOutcome> ApplyHotkeySettingsWithOutcomes(Models.AppSettings settings)
+        {
+            if (settings == null)
+            {
+                return new Dictionary<int, HotkeyRegistrationOutcome>();
+            }
 
             // RegisterHotKey/UnregisterHotKey are thread-affine: they must be called from the
             // same thread that owns _msgWindow's message queue (the thread that called Start()),
@@ -424,21 +463,24 @@ namespace WindowWorks.App
             // settings from its own (correct) thread. Marshal onto the owning thread instead.
             if (_syncContext != null && System.Threading.SynchronizationContext.Current != _syncContext)
             {
-                _syncContext.Send(_ => ApplyHotkeySettingsCore(settings), null);
-                return;
+                Dictionary<int, HotkeyRegistrationOutcome>? outcomes = null;
+                _syncContext.Send(_ => outcomes = ApplyHotkeySettingsCore(settings), null);
+                return outcomes ?? new Dictionary<int, HotkeyRegistrationOutcome>();
             }
 
-            ApplyHotkeySettingsCore(settings);
+            return ApplyHotkeySettingsCore(settings);
         }
 
-        private void ApplyHotkeySettingsCore(Models.AppSettings settings)
+        private Dictionary<int, HotkeyRegistrationOutcome> ApplyHotkeySettingsCore(Models.AppSettings settings)
         {
-            ApplyOneHotkey(0, settings.HotkeyCommandPalette, HotkeyModifiers.Win, Keys.Oem3);
-            ApplyOneHotkey(1, settings.HotkeyEmergencyReset, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R);
+            return new Dictionary<int, HotkeyRegistrationOutcome>
+            {
+                [0] = ApplyOneHotkey(0, settings.HotkeyCommandPalette, HotkeyModifiers.Win, Keys.Oem3),
+                [1] = ApplyOneHotkey(1, settings.HotkeyEmergencyReset, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R),
             // Window Reparenting picker (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1)
-            ApplyOneHotkey(2, settings.HotkeyWindowReparent, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P);
-
-            // NOTE: Click-Through Reset hotkey registration removed to avoid conflicts. Use tray menu or Gesture reset instead.
+                [2] = ApplyOneHotkey(2, settings.HotkeyWindowReparent, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P),
+                [3] = ApplyOneHotkey(3, settings.HotkeyPropertyInspector, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.I)
+            };
         }
 
         /// <summary>
@@ -448,7 +490,7 @@ namespace WindowWorks.App
         /// other, unrelated, already-working hotkeys (Command Palette, Reset All) completely
         /// untouched instead of unregistering and re-registering everything on every apply.
         /// </summary>
-        private void ApplyOneHotkey(int id, string? configured, HotkeyModifiers fallbackMods, Keys fallbackKey)
+        private HotkeyRegistrationOutcome ApplyOneHotkey(int id, string? configured, HotkeyModifiers fallbackMods, Keys fallbackKey)
         {
             string effective = string.IsNullOrWhiteSpace(configured)
                 ? $"{fallbackMods}+{fallbackKey}"
@@ -457,24 +499,47 @@ namespace WindowWorks.App
             if (_appliedHotkeyStrings.TryGetValue(id, out var previous) && previous == effective && _registeredHotkeyIds.Contains(id))
             {
                 // Unchanged since last successful apply -- leave the existing registration alone.
+                return new HotkeyRegistrationOutcome(id, effective, true, 0, previousRegistrationRestored: false);
+            }
+
+            bool hadPreviousRegistration = _registeredHotkeyIds.Contains(id)
+                && _appliedHotkeyStrings.TryGetValue(id, out previous);
+            if (hadPreviousRegistration)
+            {
+                try { UnregisterHotkey(id); } catch { }
+            }
+
+            ResolveHotkey(configured, fallbackMods, fallbackKey, out var mods, out var key);
+            if (TryRegisterHotkey(id, mods, key, out int errorCode))
+            {
+                _appliedHotkeyStrings[id] = effective;
+                return new HotkeyRegistrationOutcome(id, effective, true, 0, previousRegistrationRestored: false);
+            }
+
+            bool restored = false;
+            if (hadPreviousRegistration && previous is not null)
+            {
+                ResolveHotkey(previous, fallbackMods, fallbackKey, out var previousMods, out var previousKey);
+                restored = TryRegisterHotkey(id, previousMods, previousKey, out _);
+            }
+
+            return new HotkeyRegistrationOutcome(id, effective, false, errorCode, restored);
+        }
+
+        private static void ResolveHotkey(
+            string? configured,
+            HotkeyModifiers fallbackMods,
+            Keys fallbackKey,
+            out HotkeyModifiers mods,
+            out Keys key)
+        {
+            if (!string.IsNullOrWhiteSpace(configured) && ParseHotkeyString(configured, out mods, out key))
+            {
                 return;
             }
 
-            try { UnregisterHotkey(id); } catch { }
-
-            HotkeyModifiers mods;
-            Keys key;
-            if (!string.IsNullOrWhiteSpace(configured) && ParseHotkeyString(configured, out mods, out key))
-            {
-                // parsed successfully -- mods/key already assigned
-            }
-            else
-            {
-                mods = fallbackMods;
-                key = fallbackKey;
-            }
-            RegisterHotkey(id, mods, key);
-            _appliedHotkeyStrings[id] = effective;
+            mods = fallbackMods;
+            key = fallbackKey;
         }
 
         public static bool ParseHotkeyString(string s, out HotkeyModifiers mods, out Keys key)

@@ -11,7 +11,21 @@ namespace WindowWorks.App.UI
         public string Captured { get; private set; } = string.Empty;
         public bool IsConflict { get; set; }
         public Func<string, bool>? ConflictChecker { get; set; }
+        private bool _keyboardOnly;
         private System.Windows.Threading.DispatcherTimer? _conflictTimer;
+
+        public bool KeyboardOnly
+        {
+            get => _keyboardOnly;
+            set
+            {
+                _keyboardOnly = value;
+                if (value)
+                {
+                    TxtPrompt.Text = "Press the keyboard shortcut now...";
+                }
+            }
+        }
 
         public ShortcutCaptureWindow()
         {
@@ -35,9 +49,26 @@ namespace WindowWorks.App.UI
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (KeyboardOnly && key == Key.Escape)
+            {
+                BtnCancel_Click(BtnCancel, new RoutedEventArgs());
+                return;
+            }
+
+            if (KeyboardOnly
+                && key == Key.Enter
+                && Keyboard.Modifiers == ModifierKeys.None)
+            {
+                if (BtnOk.IsEnabled)
+                {
+                    BtnOk_Click(BtnOk, new RoutedEventArgs());
+                }
+                return;
+            }
+
             e.Handled = true;
             var mods = Keyboard.Modifiers;
-            var key = e.Key == Key.System ? e.SystemKey : e.Key;
             if (key == Key.LeftCtrl || key == Key.RightCtrl || key == Key.LeftAlt || key == Key.RightAlt || key == Key.LeftShift || key == Key.RightShift || key == Key.LWin || key == Key.RWin)
             {
                 return;
@@ -47,7 +78,19 @@ namespace WindowWorks.App.UI
             if ((mods & ModifierKeys.Alt) != 0) s += "Alt+";
             if ((mods & ModifierKeys.Shift) != 0) s += "Shift+";
             if ((mods & ModifierKeys.Windows) != 0) s += "Win+";
-            s += key.ToString();
+            if (KeyboardOnly)
+            {
+                int virtualKey = KeyInterop.VirtualKeyFromKey(key);
+                if (virtualKey == 0)
+                {
+                    return;
+                }
+                s += ((System.Windows.Forms.Keys)virtualKey).ToString();
+            }
+            else
+            {
+                s += key.ToString();
+            }
             Captured = s;
             TxtCaptured.Text = Captured;
             UpdateConflict();
@@ -55,6 +98,12 @@ namespace WindowWorks.App.UI
 
         private void OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
+            if (KeyboardOnly)
+            {
+                e.Handled = true;
+                return;
+            }
+
             var mods = Keyboard.Modifiers;
             if ((mods & ModifierKeys.Control) == 0) return;
             try
@@ -75,6 +124,11 @@ namespace WindowWorks.App.UI
 
         private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
+            if (KeyboardOnly)
+            {
+                return;
+            }
+
             var mods = Keyboard.Modifiers;
             if ((mods & ModifierKeys.Control) == 0) return;
             try

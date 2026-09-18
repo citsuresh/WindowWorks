@@ -1,10 +1,23 @@
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Automation;
 using System.Windows.Threading;
 using WindowWorks.App.UI;
 
 namespace WindowWorks.App
 {
+    /// <summary>
+    /// Defines the action performed after a native ancestor-chain picker confirmation.
+    /// </summary>
+    public enum WindowPickerMode
+    {
+        Reparenting,
+        PropertyInspector
+    }
+
     /// <summary>
     /// Drives one interactive ancestor-chain picker session (docs/REPARENT_FEATURE_PLAN.md
     /// §6.1-§6.4): polls the cursor position on a lightweight timer (avoids a full-screen
@@ -35,16 +48,22 @@ namespace WindowWorks.App
     {
         private const int PollIntervalMs = 40;
         private const int VK_ESCAPE = 0x1B;
+        private static readonly TimeSpan NativeTreeBuildTimeout = TimeSpan.FromSeconds(3);
+        private const int NativeTreeNodeBudget = 4000;
 
         private readonly DispatcherTimer _timer;
         private readonly PickerHighlightWindow _highlight = new();
         private readonly PickerBoxListWindow _boxList = new();
         private PickerElementTreeWindow? _elementTreeWindow;
+        private PickerElementTreeWindow? _programmaticallyClosingElementTree;
         private IntPtr _elementTreeBrowserHwnd = IntPtr.Zero;
         private IntPtr _elementTreeNativeHwnd = IntPtr.Zero;
         private AncestorChainEntry? _elementTreeNativeTopLevelEntry;
+        private long _nativeTreeBuildGeneration;
+        private int _nativeTreeBuildInProgress;
         private readonly bool _includePopOutPicks;
         private readonly bool _includeCropEntry;
+        private readonly WindowPickerMode _mode;
         private readonly uint _ownProcessId;
 
         /// <summary>
@@ -73,6 +92,14 @@ namespace WindowWorks.App
         public event EventHandler<AncestorChainEntry>? Confirmed;
 
         /// <summary>
+        /// Raised in inspector mode after either a native HWND confirmation or a native element
+        /// tree confirmation. Tree selections retain their exact UIA element through
+        /// <see cref="PropertyInspectorSelection.SelectedElement"/>.
+        /// </summary>
+        public event EventHandler<PropertyInspectorSelection>? PropertyInspectorSelectionConfirmed;
+        public event EventHandler? PropertyInspectorSelectionUnavailable;
+
+        /// <summary>
         /// Raised once when the user selects the crop entry appended to the yellow-box stack.
         /// The entry identifies the currently highlighted ancestor-chain target.
         /// </summary>
@@ -91,11 +118,16 @@ namespace WindowWorks.App
         /// </summary>
         public event EventHandler? Cancelled;
 
-        public WindowPickerSession(uint ownProcessId, bool includePopOutPicks, bool includeCropEntry)
+        public WindowPickerSession(
+            uint ownProcessId,
+            bool includePopOutPicks,
+            bool includeCropEntry,
+            WindowPickerMode mode = WindowPickerMode.Reparenting)
         {
             _ownProcessId = ownProcessId;
             _includePopOutPicks = includePopOutPicks;
             _includeCropEntry = includeCropEntry;
+            _mode = mode;
             _cropOnlyMode = !includePopOutPicks && includeCropEntry;
             _boxList.BoxHovered += OnBoxHovered;
             _boxList.BoxConfirmed += OnBoxConfirmed;
@@ -118,7 +150,11 @@ namespace WindowWorks.App
                 // confirm" step before the drag-to-select overlay appears.
                 if (NativeMethods.GetCursorPos(out var pt))
                 {
-                    var chain = AncestorChainWalker.Discover(pt.X, pt.Y, _ownProcessId);
+                    var chain = AncestorChainWalker.Discover(
+                        pt.X,
+                        pt.Y,
+                        _ownProcessId,
+                        includeAutomationRuntimeId: _mode != WindowPickerMode.PropertyInspector);
                     var topLevel = FindTopLevelEntry(chain);
                     if (topLevel is not null)
                     {
@@ -196,7 +232,11 @@ namespace WindowWorks.App
                 }
                 _lastPoint = pt;
 
-                var chain = AncestorChainWalker.Discover(pt.X, pt.Y, _ownProcessId);
+                var chain = AncestorChainWalker.Discover(
+                    pt.X,
+                    pt.Y,
+                    _ownProcessId,
+                    includeAutomationRuntimeId: _mode != WindowPickerMode.PropertyInspector);
                 _lastDiscoveredChain = chain;
                 if (chain.Count == 0 || (!_includePopOutPicks && !_includeCropEntry))
                 {
@@ -217,7 +257,9 @@ namespace WindowWorks.App
                 // Confirming a DOM box (or a tree-node confirm, §6.7 Piece C) drives a real
                 // crop-and-reparent via DomPickConfirmed.
                 var topLevelEntry = FindTopLevelEntry(chain);
-                if (topLevelEntry is not null && BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))
+                if (_mode == WindowPickerMode.Reparenting
+                    && topLevelEntry is not null
+                    && BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))
                 {
                     var domEntries = BrowserDomTreeWalker.Discover(topLevelEntry.Hwnd, pt.X, pt.Y);
                     if (domEntries.Count == 0)
@@ -264,7 +306,14 @@ namespace WindowWorks.App
                     return;
                 }
 
-                _boxList.SetItems(BuildItems(chain, _includePopOutPicks, _includeCropEntry));
+                _boxList.SetItems(BuildItems(
+                    chain,
+                    _includePopOutPicks,
+                    _includeCropEntry,
+                    includeElementTreeEntry: _mode == WindowPickerMode.Reparenting
+                        || (_mode == WindowPickerMode.PropertyInspector
+                            && topLevelEntry is not null
+                            && !BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))));
                 if (!_boxList.IsVisible)
                 {
                     _boxList.Show();
@@ -317,7 +366,8 @@ namespace WindowWorks.App
         private static System.Collections.Generic.List<PickerAncestorBoxItem> BuildItems(
             System.Collections.Generic.List<AncestorChainEntry> chain,
             bool includePopOutPicks,
-            bool includeCropEntry)
+            bool includeCropEntry,
+            bool includeElementTreeEntry)
         {
             var items = new System.Collections.Generic.List<PickerAncestorBoxItem>((includePopOutPicks ? chain.Count : 0) + (includeCropEntry ? 1 : 0));
             if (includePopOutPicks)
@@ -348,11 +398,14 @@ namespace WindowWorks.App
                 // browser DOM path (see BuildDomItems below), now also offered for native windows
                 // — opens a tree rooted at the top-level window's own AutomationElement instead of
                 // a browser page's Document element.
-                items.Add(new PickerAncestorBoxItem(
-                    IntPtr.Zero,
-                    "View Element Tree",
-                    isChildHwndPick: false,
-                    isElementTreeEntry: true));
+                if (includeElementTreeEntry)
+                {
+                    items.Add(new PickerAncestorBoxItem(
+                        IntPtr.Zero,
+                        "View Element Tree",
+                        isChildHwndPick: false,
+                        isElementTreeEntry: true));
+                }
             }
             if (includeCropEntry)
             {
@@ -510,8 +563,38 @@ namespace WindowWorks.App
                 item.ProcessId,
                 item.ProcessStartTimeUtc,
                 item.AutomationRuntimeId,
-                item.CapturedIdentity as ReparentEngine.CapturedWindowIdentity
-                    ?? throw new InvalidOperationException("The selected window's captured identity is unavailable."));
+                item.CapturedIdentity as ReparentEngine.CapturedWindowIdentity);
+            if (_mode == WindowPickerMode.Reparenting && match.CapturedIdentity is null)
+            {
+                throw new InvalidOperationException("The selected window's captured identity is unavailable.");
+            }
+            if (_mode == WindowPickerMode.PropertyInspector)
+            {
+                AutomationElement? selectedElement;
+                try
+                {
+                    selectedElement = AutomationElement.FromHandle(match.Hwnd);
+                }
+                catch
+                {
+                    selectedElement = null;
+                }
+
+                var rootWindowEntry = FindTopLevelEntry(_lastDiscoveredChain);
+                if (rootWindowEntry is null
+                    || !PropertyInspectorSelection.TryCapture(rootWindowEntry, selectedElement, out var selection))
+                {
+                    Dispose();
+                    PropertyInspectorSelectionUnavailable?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
+
+                Dispose();
+                Confirmed?.Invoke(this, match);
+                PropertyInspectorSelectionConfirmed?.Invoke(this, selection!);
+                return;
+            }
+
             Dispose();
             Confirmed?.Invoke(this, match);
         }
@@ -584,6 +667,13 @@ namespace WindowWorks.App
         /// </summary>
         private void OpenElementTree()
         {
+            if (_mode == WindowPickerMode.PropertyInspector
+                && _lastHoveredNativeTopLevelEntry is not null)
+            {
+                BeginNativeInspectorElementTreeBuild(_lastHoveredNativeTopLevelEntry, refreshWindow: null);
+                return;
+            }
+
             ElementTreeNodeItem? root;
             if (_lastHoveredBrowserTopLevelEntry is not null)
             {
@@ -654,6 +744,13 @@ namespace WindowWorks.App
                 return;
             }
 
+            if (_mode == WindowPickerMode.PropertyInspector
+                && _elementTreeNativeTopLevelEntry is not null)
+            {
+                BeginNativeInspectorElementTreeBuild(_elementTreeNativeTopLevelEntry, treeWindow);
+                return;
+            }
+
             var root = _elementTreeNativeHwnd != IntPtr.Zero
                 ? DomElementTreeBuilder.TryBuildRootForWindow(_elementTreeNativeHwnd)
                 : DomElementTreeBuilder.TryBuildRoot(_elementTreeBrowserHwnd, _lastPoint.X, _lastPoint.Y);
@@ -665,6 +762,166 @@ namespace WindowWorks.App
             }
 
             treeWindow.SetRoots(new[] { root });
+        }
+
+        private async void BeginNativeInspectorElementTreeBuild(
+            AncestorChainEntry topLevelEntry,
+            PickerElementTreeWindow? refreshWindow)
+        {
+            if (_disposed
+                || Interlocked.CompareExchange(ref _nativeTreeBuildInProgress, 1, 0) != 0)
+            {
+                return;
+            }
+
+            long generation = Interlocked.Increment(ref _nativeTreeBuildGeneration);
+            Task<ElementTreeNodeItem?> buildTask;
+            try
+            {
+                buildTask = Task.Factory.StartNew(
+                    () =>
+                    {
+                        try
+                        {
+                            if (!TryGetVerifiedInspectorRootRuntimeId(
+                                topLevelEntry,
+                                out var rootRuntimeIdBeforeBuild))
+                            {
+                                return null;
+                            }
+
+                            var root = DomElementTreeBuilder.TryBuildMaterializedRootForWindow(
+                                topLevelEntry.Hwnd,
+                                NativeTreeNodeBudget);
+                            if (root?.Tag is not AutomationElement rootElement
+                                || !string.Equals(
+                                    FormatAutomationRuntimeId(rootElement.GetRuntimeId()),
+                                    rootRuntimeIdBeforeBuild,
+                                    StringComparison.Ordinal)
+                                || !TryGetVerifiedInspectorRootRuntimeId(
+                                    topLevelEntry,
+                                    out var rootRuntimeIdAfterBuild)
+                                || !string.Equals(
+                                    rootRuntimeIdBeforeBuild,
+                                    rootRuntimeIdAfterBuild,
+                                    StringComparison.Ordinal))
+                            {
+                                return null;
+                            }
+
+                            return root;
+                        }
+                        finally
+                        {
+                            Interlocked.Exchange(ref _nativeTreeBuildInProgress, 0);
+                        }
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _nativeTreeBuildInProgress, 0);
+                return;
+            }
+
+            if (!ReferenceEquals(await Task.WhenAny(buildTask, Task.Delay(NativeTreeBuildTimeout)), buildTask))
+            {
+                ObserveFault(buildTask);
+                if (!_disposed && generation == Volatile.Read(ref _nativeTreeBuildGeneration))
+                {
+                    ShowNativeTreeUnavailableMessage();
+                }
+                return;
+            }
+
+            ElementTreeNodeItem? root;
+            try
+            {
+                root = await buildTask;
+            }
+            catch
+            {
+                return;
+            }
+
+            if (_disposed
+                || generation != Volatile.Read(ref _nativeTreeBuildGeneration)
+                || root is null)
+            {
+                return;
+            }
+
+            if (refreshWindow is not null)
+            {
+                if (ReferenceEquals(_elementTreeWindow, refreshWindow))
+                {
+                    refreshWindow.SetRoots(new[] { root });
+                }
+                return;
+            }
+
+            _elementTreeBrowserHwnd = IntPtr.Zero;
+            _elementTreeNativeHwnd = topLevelEntry.Hwnd;
+            _elementTreeNativeTopLevelEntry = topLevelEntry;
+
+            var treeWindow = new PickerElementTreeWindow();
+            treeWindow.SetRoots(new[] { root });
+            treeWindow.NodeSelected += OnElementTreeNodeSelected;
+            treeWindow.NodeConfirmed += OnElementTreeNodeConfirmed;
+            treeWindow.Closed += OnElementTreeWindowClosed;
+            treeWindow.RefreshRequested += OnElementTreeRefreshRequested;
+            treeWindow.CloseRequested += OnElementTreeCloseRequested;
+            _elementTreeWindow = treeWindow;
+            treeWindow.Left = _boxList.Left;
+            treeWindow.Top = _boxList.Top;
+            _boxList.Hide();
+            treeWindow.Show();
+        }
+
+        private static bool TryGetVerifiedInspectorRootRuntimeId(
+            AncestorChainEntry entry,
+            out string? runtimeId)
+        {
+            runtimeId = null;
+            return ReparentEngine.TryGetWindowIdentity(
+                       entry.Hwnd,
+                       out uint liveProcessId,
+                       out DateTime liveProcessStartTimeUtc,
+                       out string? liveClassName,
+                       out runtimeId)
+                && liveProcessId == entry.ProcessId
+                && liveProcessStartTimeUtc == entry.ProcessStartTimeUtc
+                && string.Equals(liveClassName, entry.ClassName, StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(runtimeId);
+        }
+
+        private static string? FormatAutomationRuntimeId(int[]? runtimeIdParts)
+        {
+            return runtimeIdParts is null || runtimeIdParts.Length == 0
+                ? null
+                : string.Join(
+                    ",",
+                    runtimeIdParts.Select(static value => value.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        private static void ObserveFault(Task task)
+        {
+            _ = task.ContinueWith(
+                completedTask => _ = completedTask.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        private static void ShowNativeTreeUnavailableMessage()
+        {
+            System.Windows.MessageBox.Show(
+                "The selected UI element tree is unavailable or did not respond in time.",
+                "Inspect UI Element",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
         }
 
         private void OnElementTreeNodeSelected(object? sender, ElementTreeNodeItem node)
@@ -687,6 +944,31 @@ namespace WindowWorks.App
         {
             if (_disposed || !node.HasScreenRect)
             {
+                return;
+            }
+
+            if (_mode == WindowPickerMode.PropertyInspector)
+            {
+                if (_elementTreeNativeTopLevelEntry is null
+                    || node.Tag is not AutomationElement selectedElement)
+                {
+                    return;
+                }
+
+                if (!PropertyInspectorSelection.TryCapture(
+                        _elementTreeNativeTopLevelEntry,
+                        selectedElement,
+                        out var selection))
+                {
+                    CloseElementTree();
+                    Dispose();
+                    PropertyInspectorSelectionUnavailable?.Invoke(this, EventArgs.Empty);
+                    return;
+                }
+
+                CloseElementTree();
+                Dispose();
+                PropertyInspectorSelectionConfirmed?.Invoke(this, selection!);
                 return;
             }
 
@@ -730,7 +1012,10 @@ namespace WindowWorks.App
 
         private void OnElementTreeWindowClosed(object? sender, EventArgs e)
         {
-            if (_elementTreeWindow is PickerElementTreeWindow treeWindow)
+            var treeWindow = sender as PickerElementTreeWindow;
+            bool programmaticClose = treeWindow is not null
+                && ReferenceEquals(_programmaticallyClosingElementTree, treeWindow);
+            if (treeWindow is not null)
             {
                 treeWindow.NodeSelected -= OnElementTreeNodeSelected;
                 treeWindow.NodeConfirmed -= OnElementTreeNodeConfirmed;
@@ -738,7 +1023,21 @@ namespace WindowWorks.App
                 treeWindow.RefreshRequested -= OnElementTreeRefreshRequested;
                 treeWindow.CloseRequested -= OnElementTreeCloseRequested;
             }
-            _elementTreeWindow = null;
+            if (ReferenceEquals(_elementTreeWindow, treeWindow))
+            {
+                _elementTreeWindow = null;
+            }
+            if (programmaticClose)
+            {
+                _programmaticallyClosingElementTree = null;
+            }
+
+            if (!_disposed && !programmaticClose)
+            {
+                // The tree is a mode of the same picker session. A system/window close must end
+                // the session rather than leave its hidden box list stranded.
+                Cancel();
+            }
         }
 
         /// <summary>
@@ -756,7 +1055,9 @@ namespace WindowWorks.App
             {
                 // Closing raises OnElementTreeWindowClosed synchronously, which unsubscribes and
                 // clears _elementTreeWindow -- no separate cleanup needed here.
-                try { treeWindow.Close(); } catch { }
+                _programmaticallyClosingElementTree = treeWindow;
+                try { treeWindow.Close(); }
+                catch { _programmaticallyClosingElementTree = null; }
             }
         }
 
@@ -767,6 +1068,7 @@ namespace WindowWorks.App
                 return;
             }
             _disposed = true;
+            Interlocked.Increment(ref _nativeTreeBuildGeneration);
             try { _timer.Stop(); } catch { }
             try { _boxList.BoxHovered -= OnBoxHovered; _boxList.BoxConfirmed -= OnBoxConfirmed; _boxList.CloseRequested -= OnBoxListCloseRequested; } catch { }
             try { _highlight.Close(); } catch { }

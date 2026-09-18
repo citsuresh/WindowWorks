@@ -87,6 +87,38 @@ namespace WindowWorks.App
             return BuildNode(rootElement, hwnd, windowClientScreenRect);
         }
 
+        /// <summary>
+        /// Materializes a bounded native UIA subtree without retaining UIA-backed lazy loaders.
+        /// This is used by the inspector picker from its dedicated worker, so no subsequent tree
+        /// expansion can call an external provider from the application's UI thread.
+        /// </summary>
+        public static ElementTreeNodeItem? TryBuildMaterializedRootForWindow(IntPtr hwnd, int nodeBudget)
+        {
+            if (hwnd == IntPtr.Zero || nodeBudget <= 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                var rootElement = AutomationElement.FromHandle(hwnd);
+                if (rootElement is null
+                    || !BrowserDomTreeWalker.TryGetBrowserClientScreenRect(hwnd, out var windowClientScreenRect))
+                {
+                    return null;
+                }
+
+                var root = BuildSnapshotNode(rootElement, windowClientScreenRect);
+                int remainingNodeBudget = nodeBudget - 1;
+                PopulateSnapshotChildren(rootElement, root, windowClientScreenRect, ref remainingNodeBudget);
+                return root;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static ElementTreeNodeItem BuildNode(
             AutomationElement element,
             IntPtr browserHwnd,
@@ -159,6 +191,79 @@ namespace WindowWorks.App
             }
 
             return result;
+        }
+
+        private static ElementTreeNodeItem BuildSnapshotNode(
+            AutomationElement element,
+            (int Left, int Top, int Right, int Bottom) windowClientScreenRect)
+        {
+            var current = element.Current;
+            string controlTypeName = current.ControlType?.ProgrammaticName ?? string.Empty;
+            string label = BrowserDomTreeWalker.ResolveDisplayNamePublic(current);
+            string fullLabel = string.IsNullOrWhiteSpace(label) ? controlTypeName : $"{label} ({controlTypeName})";
+
+            (int Left, int Top, int Right, int Bottom)? screenRect = null;
+            if (BrowserDomTreeWalker.TryGetClippedScreenRect(current, windowClientScreenRect, out var clipped))
+            {
+                screenRect = clipped;
+            }
+
+            return new ElementTreeNodeItem(
+                fullLabel,
+                screenRect,
+                hasChildren: false,
+                childrenLoader: null,
+                tag: element,
+                fullLabel: fullLabel);
+        }
+
+        private static void PopulateSnapshotChildren(
+            AutomationElement parentElement,
+            ElementTreeNodeItem parentNode,
+            (int Left, int Top, int Right, int Bottom) windowClientScreenRect,
+            ref int remainingNodeBudget)
+        {
+            if (remainingNodeBudget <= 0)
+            {
+                return;
+            }
+
+            var walker = TreeWalker.ControlViewWalker;
+            AutomationElement? child;
+            try
+            {
+                child = walker.GetFirstChild(parentElement);
+            }
+            catch
+            {
+                return;
+            }
+
+            const int MaxChildrenPerLevel = 500;
+            int childCount = 0;
+            while (child is not null && remainingNodeBudget > 0 && childCount++ < MaxChildrenPerLevel)
+            {
+                try
+                {
+                    var childNode = BuildSnapshotNode(child, windowClientScreenRect);
+                    parentNode.Children.Add(childNode);
+                    remainingNodeBudget--;
+                    PopulateSnapshotChildren(child, childNode, windowClientScreenRect, ref remainingNodeBudget);
+                }
+                catch
+                {
+                    // A gone or unreadable node does not prevent its siblings from being shown.
+                }
+
+                try
+                {
+                    child = walker.GetNextSibling(child);
+                }
+                catch
+                {
+                    break;
+                }
+            }
         }
 
         private static bool TryHasAnyChild(AutomationElement element)

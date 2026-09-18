@@ -29,6 +29,7 @@ namespace WindowWorks.App
             // menu's "Reset Reparenting" entry (docs/REPARENT_FEATURE_PLAN.md §8 step 11) can
             // share the same instance/tracking list as the hotkey-driven picker flow.
             var reparentController = new ReparentController(settings);
+            var propertyInspectorController = new PropertyInspectorController();
 
             // Crash recovery (§14 Phase 1 item 10): run once at startup, before any new picker/
             // hotkey activity, so any windows left orphaned by a previous crash (before its
@@ -37,7 +38,7 @@ namespace WindowWorks.App
 
             var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager, reparentController);
 
-            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager, reparentController);
+            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager, reparentController, propertyInspectorController);
             // Register UI services using a minimal local service collection (no external NuGet required)
             try
             {
@@ -79,8 +80,9 @@ namespace WindowWorks.App
         private readonly Models.AppSettings _settings;
         private readonly ClickThroughManager _clickThroughManager;
         private readonly ReparentController _reparentController;
+        private readonly PropertyInspectorController? _propertyInspectorController;
 
-        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController reparentController)
+        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController reparentController, PropertyInspectorController? propertyInspectorController = null)
         {
             _tray = tray;
             _hotkeyManager = hotkeyManager;
@@ -91,6 +93,7 @@ namespace WindowWorks.App
             _settings = settings;
             _clickThroughManager = clickThroughManager ?? throw new ArgumentNullException(nameof(clickThroughManager));
             _reparentController = reparentController ?? throw new ArgumentNullException(nameof(reparentController));
+            _propertyInspectorController = propertyInspectorController;
 
             // Start managers that require message loop or hooks
             _hotkeyManager.Start();
@@ -100,6 +103,7 @@ namespace WindowWorks.App
 
             tray.Initialize();
             tray.ExitRequested += Tray_ExitRequested;
+            tray.InspectUiElementRequested += Tray_InspectUiElementRequested;
         }
 
         private void HotkeyManager_HotkeyPressed(object? sender, HotkeyEventArgs e)
@@ -149,8 +153,21 @@ namespace WindowWorks.App
                         return;
                     }
                 }
+
+                if (!string.IsNullOrWhiteSpace(_settings.HotkeyPropertyInspector) && HotkeyManager.ParseHotkeyString(_settings.HotkeyPropertyInspector, out var imods, out var ikey))
+                {
+                    if (e.Modifiers == imods && e.Key == ikey)
+                    {
+                        try { _propertyInspectorController?.InvokePicker(); } catch { }
+                    }
+                }
             }
             catch { }
+        }
+
+        private void Tray_InspectUiElementRequested(object? sender, EventArgs e)
+        {
+            try { _propertyInspectorController?.InvokePicker(); } catch { }
         }
 
         private void Tray_ExitRequested(object? sender, EventArgs e)
@@ -222,6 +239,7 @@ namespace WindowWorks.App
                 _auditLog.Dispose();
                 try { _clickThroughManager.Dispose(); } catch { }
                 try { _reparentController.Dispose(); } catch { }
+                try { _propertyInspectorController?.Dispose(); } catch { }
             }
             base.Dispose(disposing);
         }

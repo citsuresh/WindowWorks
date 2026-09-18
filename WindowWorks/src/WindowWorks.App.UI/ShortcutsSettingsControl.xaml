@@ -27,6 +27,12 @@
                     <local:ShortcutPicker x:Name="PickerWindowReparent" Width="180" Shortcut="{Binding WindowReparent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
                     <Button x:Name="BtnEditWindowReparent" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditWindowReparent}" />
                 </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Width="180">Inspect UI Element</TextBlock>
+                    <TextBlock x:Name="LblPropertyInspectorDisplay" Width="203" VerticalAlignment="Center" Text="{Binding PropertyInspector, TargetNullValue=''}" />
+                    <local:ShortcutPicker x:Name="PickerPropertyInspector" Width="180" Shortcut="{Binding PropertyInspector, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
+                    <Button x:Name="BtnEditPropertyInspector" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditPropertyInspector}" />
+                </StackPanel>
             </StackPanel>
         </GroupBox>
 

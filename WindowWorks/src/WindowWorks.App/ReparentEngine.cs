@@ -379,7 +379,8 @@ namespace WindowWorks.App
             out uint pid,
             out DateTime processStartTimeUtc,
             out string? className,
-            out string? automationRuntimeId)
+            out string? automationRuntimeId,
+            bool includeAutomationRuntimeId = true)
         {
             pid = 0;
             processStartTimeUtc = default;
@@ -415,8 +416,12 @@ namespace WindowWorks.App
             }
 
             className = classNameBuffer.ToString();
-            return !string.IsNullOrWhiteSpace(className) &&
-                TryGetAutomationRuntimeId(hwnd, out automationRuntimeId);
+            if (string.IsNullOrWhiteSpace(className))
+            {
+                return false;
+            }
+
+            return !includeAutomationRuntimeId || TryGetAutomationRuntimeId(hwnd, out automationRuntimeId);
         }
 
         internal static bool TryGetAutomationRuntimeId(IntPtr hwnd, out string? runtimeId)
