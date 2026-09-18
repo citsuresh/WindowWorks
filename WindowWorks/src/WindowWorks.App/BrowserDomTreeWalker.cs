@@ -25,18 +25,29 @@ namespace WindowWorks.App
         public (int Left, int Top, int Right, int Bottom) ClippedScreenRect { get; }
         public bool IsDocumentRoot { get; }
 
+        /// <summary>
+        /// The live UIA element this entry was built from. <c>null</c> only for entries
+        /// synthesized without a real element (e.g. <see cref="WindowPickerSession"/>'s element
+        /// tree confirm path, which builds a <see cref="DomElementEntry"/> purely for its screen
+        /// rect). Needed so Property Inspector picks can inspect this exact DOM node's properties
+        /// rather than just crop-and-reparent its screen rect.
+        /// </summary>
+        public AutomationElement? Element { get; }
+
         public DomElementEntry(
             IntPtr browserHwnd,
             string controlTypeName,
             string name,
             (int Left, int Top, int Right, int Bottom) clippedScreenRect,
-            bool isDocumentRoot)
+            bool isDocumentRoot,
+            AutomationElement? element = null)
         {
             BrowserHwnd = browserHwnd;
             ControlTypeName = controlTypeName;
             Name = name;
             ClippedScreenRect = clippedScreenRect;
             IsDocumentRoot = isDocumentRoot;
+            Element = element;
         }
     }
 
@@ -143,7 +154,8 @@ namespace WindowWorks.App
                     current.ControlType?.ProgrammaticName ?? string.Empty,
                     ResolveDisplayName(current, clipped),
                     clipped,
-                    isDocumentRoot);
+                    isDocumentRoot,
+                    element);
                 return true;
             }
             catch

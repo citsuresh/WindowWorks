@@ -257,8 +257,7 @@ namespace WindowWorks.App
                 // Confirming a DOM box (or a tree-node confirm, §6.7 Piece C) drives a real
                 // crop-and-reparent via DomPickConfirmed.
                 var topLevelEntry = FindTopLevelEntry(chain);
-                if (_mode == WindowPickerMode.Reparenting
-                    && topLevelEntry is not null
+                if (topLevelEntry is not null
                     && BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))
                 {
                     var domEntries = BrowserDomTreeWalker.Discover(topLevelEntry.Hwnd, pt.X, pt.Y);
@@ -524,6 +523,23 @@ namespace WindowWorks.App
                 }
 
                 var browserTopLevelEntry = _lastHoveredBrowserTopLevelEntry;
+
+                if (_mode == WindowPickerMode.PropertyInspector)
+                {
+                    if (!PropertyInspectorSelection.TryCapture(
+                            browserTopLevelEntry, domEntry.Element, out var selection))
+                    {
+                        Dispose();
+                        PropertyInspectorSelectionUnavailable?.Invoke(this, EventArgs.Empty);
+                        return;
+                    }
+
+                    Dispose();
+                    Confirmed?.Invoke(this, browserTopLevelEntry);
+                    PropertyInspectorSelectionConfirmed?.Invoke(this, selection!);
+                    return;
+                }
+
                 Dispose();
                 DomPickConfirmed?.Invoke(this, new DomPickConfirmedEventArgs(domEntry, browserTopLevelEntry));
                 return;
