@@ -24,12 +24,15 @@
       of window height, `OverlayTriggerZoneHeightFraction`), an
       always-show vs. hover-only toggle, and overlay appearance (background
       tint/opacity, button size).
-- [ ] Property Inspector feature: real "hide element" capability for DOM
-      elements. UIA/MSAA has no generic way to force-hide an arbitrary
-      element (IAccessible's accState is read-only; LegacyIAccessiblePattern
-      only exposes SetValue/DoDefaultAction, which only work if the element
-      itself already defines a matching action, not a generic visibility
-      switch). Real hiding (e.g. `style.display=none`) would require a new
-      browser JS-injection/devtools-protocol bridge — a more advanced,
-      separately-scoped capability, not a simple property edit. Noted for
-      future consideration; not started.
+- [ ] Property Inspector feature: Phase E — DevTools (CDP) bridge as an
+      additive second "DevTools Properties" grid section (alongside the
+      existing always-present "UIA Properties" section), for Chromium-family
+      browser DOM elements. Enables real hide/show (`style.display`/
+      `style.visibility`) and other DOM-only properties UIA can't reach.
+      Full design (element correlation, full-re-fetch sync rule after any
+      write on either side, browser remote-debugging-port requirement,
+      Chromium-only scope) is written up in full in
+      `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` §4 Phase E. **In progress:**
+      sub-phase 1 (CDP bridge proof of concept) complete and manually
+      verified; sub-phases 2-5 (element correlation, read-only display,
+      write path/hide-show, broader property set) not yet started.

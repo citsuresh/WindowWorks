@@ -5,21 +5,95 @@
 > Keep this ledger current as implementation progresses. Each increment records its code status,
 > regression-audit result, and the user's manual-test confirmation before the next increment starts.
 
-### Phase A — UIA (native controls) proof of concept
+### Phase A — UIA (native controls) proof of concept — ✅ COMPLETE
 
-- **Status:** Increments 1 and 2 implementation complete (including native Element Tree selection
-  for non-HWND UIA controls and UIA-first Name/Text writes with a SetWindowText fallback);
-  automated review and manual-test evidence pending.
-- **Regression fixes:** Keyboard-only shortcut confirmation/cancellation, failed hotkey
-  registration reporting/restoration, and selection-time UIA identity freezing are fixed;
-  automated review and manual-test evidence remain pending.
-- **Entry point:** Permanent tray-menu command: **Inspect UI Element...**
-- **Planned increments:**
-  1. Inspector-mode picker invocation, selection handoff, and read-only property display.
-  2. UIA-first text/name write, with `SetWindowText` fallback distinguished in the confirmation.
-  3. Enabled/toggle writes, staged Apply/Cancel behavior, and pre-Apply identity revalidation.
-- **Manual testing:** Required after every meaningfully testable increment per §6a.
-- **Regression auditing:** Required after every increment and once after Phase A is complete.
+- **Status:** Done and superseded by Phase C (see below) — the full concrete implementation
+  landed well beyond this POC's original scope. Kept here only as a historical record.
+
+### Phase B — Browser DOM element (UIA-only) proof of concept — ✅ COMPLETE
+
+- **Status:** Done. DOM elements are pickable via the Element Tree window (top-level window only
+  at first; child-element picking inside a browser now also works — user confirmed testing with a
+  second, different browser control and the picker/tree both worked). UIA read/write for DOM
+  elements confirmed working for the same property set as native controls where the underlying
+  UIA pattern is present.
+
+### Phase C — UIA (native controls) concrete implementation — ✅ COMPLETE (design changed from original plan)
+
+- **Status:** Done, but the original Apply/Cancel staged-workflow design (§2 below) was
+  **superseded per explicit user request during implementation**: edits now commit immediately —
+  text/range fields commit on Enter key press or on focus loss (not just focus loss), and other
+  editor kinds (Toggle, SelectionItem, Win32Bool, ExpandCollapse, WindowVisualState) commit
+  immediately on change. A per-property **Apply** button was added next to text/range editors
+  (`ApplyTextButton_Click`) as an additional explicit-commit affordance alongside Enter/focus-loss,
+  rather than a single end-of-session Apply/Cancel gate over all staged edits. This is a real,
+  confirmed design deviation from §2's original "Apply/Cancel workflow" bullet — §2 is left as
+  historical rationale below but no longer describes current behavior; see the in-app hint text
+  ("Inline edits commit on Enter/focus loss (text) or immediately on change (checkbox/combo)")
+  for the authoritative current behavior.
+- **Editor kinds implemented** (`PropertyInspectorEditorKind`): ReadOnly, Text, Toggle (now a
+  toggle-switch control per user request, not a checkbox), Range, SelectionItem, ExpandCollapse,
+  WindowVisualState, Win32Bool (with a real Win32 fallback write path, including surfacing
+  Access Denied errors for elevated target windows — confirmed as expected/correct behavior via
+  manual testing), LegacyText (MSAA/LegacyIAccessiblePattern.SetValue bridge), Invoke
+  (LegacyIAccessiblePattern.DoDefaultAction), and Transform (bounding-rectangle X/Y/Width/Height
+  editing via TransformPattern) — i.e. the full property surface from §2's scope decision,
+  including position/size editing, which the original phase breakdown had deferred.
+- **Property grid navigation:** Up/Down arrow-key row navigation implemented via a
+  `WH_KEYBOARD_LL` low-level keyboard hook (arrow-key `WM_KEYDOWN` does not reach this window's
+  normal WPF `PreviewKeyDown` routing at all — same class of issue already solved in
+  `PickerElementTreeWindow`), with `DataGrid.SelectedIndex` kept in sync so the visible row
+  highlight follows keyboard focus. Selected-row highlight uses a translucent overlay + border
+  (not a solid fill) so value text stays readable regardless of the editor control's own
+  foreground color. Both fixed and manually confirmed by the user.
+- **Entry point:** Permanent tray-menu command **Inspect UI Element...**, plus a **View Element
+  Tree** button inside the inspector for navigating to and inspecting any descendant node (native
+  or DOM), not just the initially-picked top-level element.
+
+### Phase D — Browser DOM element concrete implementation — ✅ COMPLETE
+
+- **Status:** Done. DOM element properties use the same Phase C property grid, editor kinds, and
+  write paths as native controls (UIA-pattern-first; no Win32 fallback is possible for DOM
+  elements per §6's known constraint, since they have no real HWND). Manually confirmed by the
+  user across multiple real browser instances/pages.
+
+### Phase E — DevTools (CDP) bridge as an additive second property section — IN PROGRESS
+
+- **Status:** Sub-phase 1 (CDP bridge proof of concept) ✅ COMPLETE, manually verified.
+  Sub-phases 2-5 not yet started. Full Pre-Build Decomposition confirmed with the user before
+  sub-phase 1 implementation began, per this project's standing workflow.
+- **Sub-phase 1 — CDP bridge proof of concept:** Hand-rolled WebSocket + JSON-RPC client
+  (`WindowWorks.App/Cdp/CdpClient.cs`, `CdpTarget.cs`) chosen over a NuGet CDP library, since the
+  project deliberately keeps external dependencies minimal (only one existing NuGet package,
+  `Interop.UIAutomationClient`) and the wire protocol needed is small — one HTTP GET for target
+  discovery (`/json/list`) plus a handful of JSON-RPC-style WebSocket round-trips. Manually
+  verified end-to-end against a real running Brave instance launched with
+  `--remote-debugging-port=9222`: target discovery found the open tab, WebSocket connect
+  succeeded, and `Runtime.evaluate("1 + 1")` round-tripped correctly (`{"result":{"type":"number",
+  "value":2,"description":"2"}}`). A temporary manual-verification harness
+  (`WindowWorks.App/Cdp/CdpBridgePoc.cs`, invoked via `WindowWorks.App.exe --cdp-poc`, writes its
+  report to `%TEMP%\cdp-poc-report.txt`) is being **kept intentionally** (not removed after
+  sub-phase 1, per explicit user request) since sub-phase 2 (element correlation) will also need a
+  similar live-browser manual-verification harness — expect it to be extended/repurposed there
+  rather than deleted.
+  - Regression Audit (code-review subagent, independent of implementation rationale) found and
+    the following were fixed before this sub-phase was considered done:
+    - A race where a `SendCommandAsync` call issued concurrently with (or immediately after) the
+      receive loop faulting could hang forever, since the fault handler only failed requests
+      already present in `_pending` at the moment it ran. Fixed by adding a `_faultException`
+      field checked both before and immediately after registering a new pending request, plus a
+      `finally` block in the receive loop that always drains and fails any remaining pending
+      requests on exit (covers disposal, cancellation, and error paths uniformly).
+    - `DisposeAsync` did not fail any requests still pending at disposal time, so a caller awaiting
+      `SendCommandAsync` with a `default` cancellation token could hang indefinitely across
+      disposal. Fixed as a side effect of the `finally`-block change above (disposal cancels the
+      receive loop, which now always drains `_pending` on any exit path).
+    - Unbounded `MemoryStream` growth when reassembling a multi-frame WebSocket message (no size
+      cap). Fixed with a 32 MB safety cap that aborts the connection if exceeded.
+  - No other issues found: build succeeds; no existing CDP/WebSocket/JSON-RPC mechanism elsewhere
+    in the codebase is duplicated; the new `--cdp-poc` command-line branch in `Program.cs` does not
+    alter normal (no-args) startup behavior.
+
 
 ## 1. Goal
 
@@ -50,22 +124,26 @@ region-crop step here, only "select one element, inspect/edit it."
   Win32 calls (`SetWindowText`, `EnableWindow`, `ShowWindow`, `SetWindowPos`/`MoveWindow`) only
   when UIA reports the corresponding pattern unsupported. Position/size edits will almost always
   go through the Win32 fallback path, since there is no dedicated UIA "resize" pattern.
-- **Apply/Cancel workflow**: the property grid has explicit **Apply** and **Cancel** buttons —
-  edits are staged locally in the grid and never pushed to the live element until Apply is
-  clicked. Clicking Apply shows a confirmation prompt (summarizing what will change) before the
-  writes are actually issued, since some edits (resizing a child control unexpected by its
-  parent's layout logic, disabling a critical control) can visibly break the target app.
+- **Apply/Cancel workflow — SUPERSEDED, see Phase C status above.** Originally: the property grid
+  would have explicit **Apply** and **Cancel** buttons, with edits staged locally and never
+  pushed until Apply is clicked (with a pre-Apply confirmation prompt for risky edits). This was
+  **changed during implementation per explicit user request**: edits now commit immediately
+  (Enter/focus-loss for text/range, immediately-on-change for toggle/combo/checkbox-style
+  editors), with a per-property Apply button as an additional explicit-commit affordance for
+  text/range fields rather than a single end-of-session gate. Left here as historical rationale
+  only — do not treat this bullet as current behavior.
 - **Build order**: proof-of-concept first for *both* paths before either gets hardened into a
   real feature — see the phase breakdown in §4. Do not skip straight to a "concrete
   implementation" phase for one path while the other path's POC hasn't even been attempted; the
   point of doing both POCs first is to surface path-specific blockers early (e.g. discovering a
   UIA pattern doesn't behave as expected, or a DOM property can't be safely written) before
   committing to deeper investment in either.
-- **CDP is out of scope** (per the user's standing decision recorded in
-  `REPARENT_FEATURE_PLAN.md` Phase 6 — "more complex, we will see other options"). Browser DOM
-  element property editing in Phase B/D uses **UIA only** — this constrains what's actually
-  editable for DOM elements (UIA's write surface for Chromium's accessibility tree is narrower
-  than full CDP DOM/CSS access; see §6 for what's realistically achievable).
+- **CDP was originally out of scope** (per the user's standing decision recorded in
+  `REPARENT_FEATURE_PLAN.md` Phase 6 — "more complex, we will see other options"). This has since
+  been **reopened**: Phase E (§4, below) adds an optional Chrome DevTools Protocol (CDP) bridge as
+  a second, additive property section alongside UIA — see Phase E for the full design. Phases A-D
+  below (UIA-only) are otherwise unaffected and remain the baseline that always works, with or
+  without a DevTools bridge connection.
 
 ## 3. Why UIA-first / Win32-fallback (rationale, for future reference)
 
@@ -182,15 +260,115 @@ B's findings:
   B's findings are too limited to be useful — but only if the user raises it; do not reopen it
   proactively.
 
+### Phase E — DevTools (CDP) bridge as an additive second property section
+
+Only starts once Phase D has landed (so the two-section grid has a real UIA-only baseline to
+extend, not replace). Reopens the CDP-deferral decision from §2/Phase B — user has confirmed this
+is worth doing, framed specifically as **additive**, not a replacement for the UIA path.
+
+**Goal:** For browser DOM elements only, show a second, clearly-separated "DevTools Properties"
+section in the same property grid, alongside the existing "UIA Properties" section (which is
+always present and unaffected). The DevTools section surfaces DOM/CSS-level properties/actions
+that UIA cannot reach (`style.display`, `style.visibility`, `class`, `innerText`, arbitrary
+attributes, computed styles, dispatching real DOM events) and is the mechanism for real
+element-hiding (§ROADMAP's now-removed "hide element" backlog item — this phase is what
+"remove it from backlog" meant: it becomes a concretely planned phase instead of a vague future
+idea).
+
+**Design decisions (confirmed with the user during planning):**
+- **Two sections, not a merged/unified list.** The DataGrid groups properties by a `Source`
+  field (`PropertyInspectorPropertySource.Uia` vs `.DevTools`), using WPF's
+  `CollectionViewSource.GroupDescriptions` (or an equivalent grouped-`ItemsSource` approach) with
+  a group header per section. UIA section always renders (existing Phase A/C behavior,
+  completely unchanged). DevTools section only renders when a live CDP connection was
+  successfully established AND the picked element was successfully correlated to a DOM node
+  (§Element correlation below) — otherwise it's simply absent (not shown empty, not shown as an
+  error state, unless the user explicitly attempted a DevTools-only action).
+- **Synchronization model: full re-fetch after every write, regardless of which section wrote
+  it.** There is no dependency-tracking or partial-invalidation logic between the two sections —
+  after *any* successful Apply (UIA or DevTools), re-read both the full UIA property set and the
+  full DevTools property set for the same element and refresh the entire grid. This mirrors the
+  existing "commit → verify → redisplay" cycle Phase A/C already uses for UIA writes, just
+  extended to always refresh both sections together rather than only the section that changed.
+  Rationale (from planning discussion): CDP is one-directional (WindowWorks drives the browser;
+  the browser does not proactively notify WindowWorks of arbitrary UIA-side effects of a DOM
+  change, or vice versa), so there's no reliable event-driven alternative — blanket re-fetch is
+  the only dependable mechanism, not a limitation to engineer around. A future optional
+  enhancement (not required for this phase) could additionally subscribe to UIA
+  `AutomationPropertyChangedEventHandler` for faster UIA-section refresh after a DevTools write,
+  but this is a supplement, not a replacement, for the full re-fetch and can be deferred.
+  Known residual limitation (same as today's UIA-only inspector): if the page's own JS changes the
+  DOM independently of any WindowWorks-initiated write, the grid will look stale until the next
+  manual re-fetch or re-selection — not solved by this phase, consistent with existing behavior.
+- **Browser/session requirements:** CDP requires the target browser process to have been launched
+  with (or relaunched with) `--remote-debugging-port=<port>` — WindowWorks cannot enable this on
+  an already-running browser instance without relaunching it. Phase E must therefore detect
+  whether the target browser is already debuggable (attempt a connection to the well-known
+  debugging port / discover it) and, if not, clearly tell the user in the UI that the DevTools
+  section is unavailable for this browser instance and why (not a silent absence) — this is a
+  real, expected, common case, not an error to hide.
+- **Scope: Chromium-family only.** CDP is a Chromium-specific protocol (Chrome, Edge, Brave,
+  etc.); Firefox has no CDP support (it uses a different remote protocol, WebDriver BiDi, which is
+  explicitly out of scope for this phase — see §5). The existing Chromium-family class-name
+  allowlist detection (already used for the DOM Element Tree feature) is reused to decide whether
+  to even attempt a CDP connection.
+
+**Scope breakdown (sub-phases within Phase E; full Pre-Build Decomposition confirmation with the
+user still required before implementation starts, per this project's standing workflow):**
+
+1. **CDP bridge proof of concept.** Establish a WebSocket connection to a Chromium browser's
+   DevTools endpoint (via an existing .NET CDP client library, or a minimal hand-rolled
+   WebSocket + JSON-RPC client if a suitable library isn't available/desired), enumerate open
+   tabs/targets, and successfully execute one trivial round-trip command (e.g.
+   `Runtime.evaluate` on a simple expression) against a real running browser tab launched with
+   `--remote-debugging-port`. Exit criteria: prove the connection/command mechanism works at all,
+   nothing UI-facing yet.
+2. **Element correlation.** Given a UIA-picked DOM element (bounding rect + whatever
+   Name/ControlType/attributes UIA already exposes), find the corresponding CDP DOM node. Likely
+   approach: use CDP's `DOM.getDocument` + `DOM.getBoxModel`/`DOM.querySelector`-style traversal
+   and match by bounding-rect overlap plus tag name/attribute similarity, since UIA and CDP node
+   identities are unrelated. This is explicitly a heuristic, not a guaranteed 1:1 mapping — record
+   how often/reliably it succeeds during this sub-phase, since that directly determines Phase E's
+   real-world usefulness. If correlation fails for a given element, the DevTools section for that
+   element is simply absent (same "not shown, not an error" rule as above).
+3. **Read-only DevTools property display.** Once correlated, fetch and display a first real
+   property set in the new "DevTools Properties" grid section: `style.display`,
+   `style.visibility`, `class`, `id`, `innerText`, and computed bounding box in page coordinates.
+   Read-only at this sub-phase — no Apply/write yet. Exit criteria: real DOM properties visibly
+   populate the second section for a real picked element.
+4. **DevTools write path + hide/show action.** Add editable versions of `style.display`/
+   `style.visibility` (the actual "hide element" capability), routed through CDP's
+   `DOM.setAttributeValue`/`CSS.setStyleTexts` (or `Runtime.callFunctionOn` executing a small JS
+   snippet against the correlated node, whichever proves more reliable in sub-phase 1-2's
+   findings). Wire this into the current immediate-commit editing model (Phase C's superseded-§2
+   note above) exactly like a UIA write — commit on Enter/focus-loss or an Apply button, per the
+   editor kind — with the full-re-fetch synchronization rule above applied after each commit. Exit
+   criteria: toggling `style.display` on a real picked DOM element actually hides/shows it in the
+   live browser window, and both grid sections refresh correctly afterward.
+5. **Broader DevTools property/action set (time-permitting, lower priority than 1-4):** arbitrary
+   attribute read/write, dispatching real DOM events (`click`/`input`/`change`) via
+   `Input.dispatchMouseEvent`/`Runtime.callFunctionOn`, and reading full computed CSS styles. Only
+   pursue after 1-4 are solid and manually confirmed — do not front-load this before the core
+   hide/show capability is proven end-to-end.
+
+**Exit criteria for Phase E overall:** pick a real DOM element in a Chromium-family browser
+launched with remote debugging enabled, see both a "UIA Properties" and a "DevTools Properties"
+section in the same grid, edit `style.display` in the DevTools section, click Apply, and observe
+the element actually disappear from the live rendered page — with the UIA section's own values
+(e.g. `IsOffscreen`) refreshing afterward to reflect the change, proving the full-re-fetch
+synchronization rule works in practice, not just in theory.
+
 ## 5. Explicitly out of scope (for all phases, unless the user reopens them)
 
-- CDP-based DOM property/attribute editing (`DOM.setAttributeValue`, `CSS.setStyleTexts`, etc.) —
-  standing decision, see §2.
-- Crop-and-reparent of the picked element — that is Phase 6 of `REPARENT_FEATURE_PLAN.md`, a
-  separate feature this doc's picker reuse does not trigger.
+- Firefox/WebDriver BiDi support for the DevTools section — Phase E is Chromium/CDP-only; a
+  Firefox equivalent would need its own separate design and is not assumed.
 - Persistence/presets of edited property values across sessions — not discussed, not assumed.
 - Any element type beyond native Win32/WPF controls and browser DOM elements (e.g. UWP/XAML
   islands, other rendering engines) — not discussed, not assumed.
+- Automatically launching/relaunching a browser instance with `--remote-debugging-port` on the
+  user's behalf — Phase E only attempts to connect to an already-debuggable instance and clearly
+  reports when one isn't available; auto-relaunching a user's existing browser session (closing
+  their tabs/session to add a flag) is a much more invasive behavior not assumed in scope here.
 
 ## 6a. Manual testing checkpoints (process note, not a technical decision)
 

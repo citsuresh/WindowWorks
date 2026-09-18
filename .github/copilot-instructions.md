@@ -51,7 +51,7 @@
       directly (e.g. a live `dotnet-dump` capture/inspection of the running process for hangs or
       hard-to-explain state bugs) before trying again.
 
-<!-- project-memory-management-graph: skill-version=10 -->
+<!-- project-memory-management-graph: skill-version=11 -->
 ## Persistent Project Memory
 
 This section is fully regenerated on every Bootstrap run.
