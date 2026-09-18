@@ -346,7 +346,13 @@
                 <TextBlock Grid.Column="0" Text="Inspect UI Element" Foreground="#FFFFB74D" FontSize="13"
                            FontWeight="SemiBold" VerticalAlignment="Center" IsHitTestVisible="True" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button x:Name="CloseButton" Width="26" Height="26" Padding="0"
+                    <Button x:Name="RefreshButton" Width="26" Height="26" Padding="0"
+                            Background="Transparent" BorderBrush="#55FFFFFF" BorderThickness="1"
+                            Foreground="White" Focusable="False" ToolTip="Refresh" Click="OnRefreshClick">
+                        <TextBlock Text="&#xE72C;" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Button>
+                    <Button x:Name="CloseButton" Width="26" Height="26" Padding="0" Margin="4,0,0,0"
                             Background="Transparent" BorderBrush="#55FFFFFF" BorderThickness="1"
                             Foreground="White" Focusable="False" ToolTip="Close" Click="OnCloseClick">
                         <TextBlock Text="&#xE8BB;" FontFamily="Segoe MDL2 Assets" FontSize="13"
@@ -427,6 +433,17 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
                 </DataGrid.Columns>
+                <DataGrid.GroupStyle>
+                    <GroupStyle>
+                        <GroupStyle.HeaderTemplate>
+                            <DataTemplate>
+                                <Border Background="#442B2B2B" BorderBrush="#55FFB74D" BorderThickness="0,0,0,1" Padding="6,3">
+                                    <TextBlock Text="{Binding Name}" Foreground="#FFFFB74D" FontWeight="SemiBold" FontSize="12" />
+                                </Border>
+                            </DataTemplate>
+                        </GroupStyle.HeaderTemplate>
+                    </GroupStyle>
+                </DataGrid.GroupStyle>
             </DataGrid>
         </DockPanel>
     </Border>

@@ -24,9 +24,50 @@ namespace WindowWorks.App
         }
 
         public AncestorChainEntry RootWindowEntry { get; }
-        public AutomationElement SelectedElement { get; }
-        public string SelectedElementRuntimeId { get; }
+        public AutomationElement SelectedElement { get; private set; }
+        public string SelectedElementRuntimeId { get; private set; }
         internal ReparentEngine.CapturedWindowIdentity RootWindowIdentity { get; }
+
+        /// <summary>
+        /// Caches the last successful CDP correlation for this selection (see
+        /// <see cref="Cdp.CdpCorrelationCache"/>) so a DevTools write can fall back to it when the
+        /// UIA-rect-based re-correlation path fails (e.g. after style.display:none removes the
+        /// element from the accessibility tree). One instance per selection/pick, shared across
+        /// every read/write against this element.
+        /// </summary>
+        internal Cdp.CdpCorrelationCache CdpCache { get; } = new();
+
+        /// <summary>
+        /// Attempts to replace <see cref="SelectedElement"/>/<see cref="SelectedElementRuntimeId"/>
+        /// with a freshly re-acquired UIA element found at the given screen point (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 4 follow-up). Needed because
+        /// Chromium creates a brand-new accessibility node when a previously style.display:none
+        /// element becomes visible again — the original <see cref="AutomationElement"/> reference
+        /// captured at pick time never becomes valid again even after the underlying DOM node is
+        /// visible, so the UIA section would otherwise stay permanently absent after a
+        /// hide-then-show round trip. Returns <c>true</c> only if a live element was actually
+        /// found at that point; the current selection is left unchanged on failure.
+        /// </summary>
+        internal bool TryRebindSelectedElementAtPoint(int screenX, int screenY)
+        {
+            try
+            {
+                var element = AutomationElement.FromPoint(new System.Windows.Point(screenX, screenY));
+                string? runtimeId = FormatRuntimeId(element?.GetRuntimeId());
+                if (element is null || string.IsNullOrWhiteSpace(runtimeId))
+                {
+                    return false;
+                }
+
+                SelectedElement = element;
+                SelectedElementRuntimeId = runtimeId;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// Captures all identity fields on the picker UI thread at confirmation time. A later

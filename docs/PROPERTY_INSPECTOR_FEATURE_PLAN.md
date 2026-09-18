@@ -61,7 +61,13 @@
 
 - **Status:** Sub-phase 1 (CDP bridge proof of concept) ✅ COMPLETE, manually verified.
   Sub-phase 2 (element correlation) ✅ COMPLETE, manually verified against a real Brave instance
-  with confidence 0.98-0.99. Sub-phases 3-5 not yet started. Full Pre-Build Decomposition
+  with confidence 0.98-0.99. Sub-phase 3 (read-only DevTools property display) ✅ COMPLETE, manually
+  verified. Sub-phase 4 (DevTools write path + hide/show action) ✅ COMPLETE, verified end-to-end
+  against a live Edge instance. Three follow-up architectural bugs (re-correlation after a
+  `display:none` write, cache-fallback property read priming, UIA-section reappearance after
+  show/hide) found and fixed via live self-testing — see "Sub-phase 4 follow-up" below. A Refresh
+  button was also added to the inspector window. Sub-phase 5 (broader DevTools property/action
+  set) not started — deferred as lower priority per the plan. Full Pre-Build Decomposition
   confirmed with the user before each sub-phase's implementation began, per this project's
   standing workflow.
 - **Sub-phase 1 — CDP bridge proof of concept:** Hand-rolled WebSocket + JSON-RPC client
@@ -134,6 +140,112 @@
     `--cdp-poc-correlate` command-line branch in `Program.cs` does not alter normal (no-args)
     startup behavior; the DPI-awareness context switch is thread-local only and does not leak to
     other threads or persist after the correlation call returns.
+- **Sub-phase 3 — Read-only DevTools property display:** `CdpPropertyReader.ReadAsync`
+  (`WindowWorks.App/Cdp/CdpPropertyReader.cs`) fetches `style.display`, `style.visibility`,
+  `class`, `id`, `innerText`, and computed bounding box (page coordinates) for the correlated node
+  via `Runtime.callFunctionOn` (reading `getComputedStyle`/direct property access on the resolved
+  JS object) plus `DOM.getBoxModel`. `CdpBridgeAttempt.TryReadAsync`
+  (`WindowWorks.App/Cdp/CdpBridgeAttempt.cs`) orchestrates the full discover → connect → correlate
+  → read flow per selection, and `PropertyInspectorController.TryAppendDevToolsPropertiesAsync`
+  wires this into the existing property-read pipeline: a new "DevTools Properties" grid section
+  (`PropertyInspectorPropertySource.DevTools`) is appended only when a Chromium-family top-level
+  window is detected, a live CDP endpoint is found, and correlation succeeds — otherwise the
+  section is silently absent, never shown as an error, per the plan's requirement. All rows were
+  initially read-only. Manually verified: the section appeared with correct live values for a real
+  `https://example.com/` `<h1>` element in a running Edge instance.
+- **Sub-phase 4 — DevTools write path + hide/show action:** `CdpPropertyWriter.WriteStyleAsync`
+  (`WindowWorks.App/Cdp/CdpPropertyWriter.cs`, new) writes a single inline style property via
+  `Runtime.callFunctionOn` calling `this.style.setProperty(property, value)` against the resolved
+  DOM object — chosen over `DOM.setAttributeValue` on the raw `style` attribute string (which would
+  risk clobbering other existing inline styles) or `CSS.setStyleTexts` (a heavier stylesheet-edit
+  round trip). `CdpBridgeAttempt` gained `TryWriteStyleAsync`, sharing a common
+  `TryReadOrWriteAsync` orchestration with the read path via an optional `writeStep` callback — the
+  write path re-discovers the endpoint and re-correlates fresh per write (a resolved
+  `BackendNodeId`/CDP `objectId` cannot be safely reused across a new WebSocket connection), then
+  reads back properties in the same connection for the sync-rule refresh.
+  `style.display`/`style.visibility` rows are now editable (`EditorKind.Text`) using the existing
+  per-property commit model (Enter/focus-loss/Apply), matching Phase C's behavior — not the
+  superseded Apply/Cancel staging design. `PropertyInspectorController.TryWriteProperty` routes
+  DevTools-sourced writes to a new `TryWriteDevToolsStyle` method; all other DevTools-sourced
+  properties remain read-only. Per the sync rule, every successful write (UIA or DevTools)
+  re-fetches both full property sets and refreshes the whole grid.
+  - Manually verified end-to-end against a real Edge instance (launched with
+    `--remote-debugging-port=9222`, navigated to `https://example.com/`): editing `style.visibility`
+    produced the status message "style.visibility updated through DevTools (CDP). Live properties
+    were refreshed," confirming the write → CDP call → re-fetch → UI update pipeline works
+    correctly.
+  - Regression Audit (code-review subagent, independent of implementation rationale) found and the
+    following were fixed before this sub-phase was considered done:
+    - DevTools CDP operations (read-append during `ReadAndShowAsync`/`CompleteWrite`, and writes via
+      `TryWriteDevToolsStyle`) were not serialized against each other, so a concurrently-triggered
+      read and write (or two overlapping reads) against the same element could open independent CDP
+      connections with no mutual exclusion. Fixed by adding a dedicated
+      `_devToolsOperationGate` (`SemaphoreSlim(1, 1)`) that all DevTools CDP round trips now acquire.
+    - `CompleteWrite` (the shared post-write refresh helper for UIA writers) re-checked selection
+      identity once before its DevTools re-append, but not afterward — since that append can take up
+      to `DevToolsOperationTimeout` (8s), a selection change or teardown during that window could
+      result in a stale DevTools property set being reported as a successful refresh. Fixed by
+      adding the same post-append identity re-check already present in `TryWriteDevToolsStyle`.
+    - `CdpPropertyWriter.WriteStyleAsync` never inspected `Runtime.callFunctionOn`'s response for
+      `exceptionDetails` — a JS-level exception (e.g. an invalid CSS value) is reported by CDP as a
+      normal response rather than a protocol error, so the write was unconditionally reported as
+      successful even when the style was never actually changed. Fixed by checking for
+      `exceptionDetails` and returning failure when present.
+  - No other issues found: `CdpEndpointDiscovery`/`CdpDomCorrelator`/`CdpPropertyReader` correctly
+    avoid caching backend node ids or CDP object ids across connections; `CdpClient` disposal and
+    fault-handling paths are sound; `CdpBridgePoc.cs` remains in active use via the
+    `--cdp-poc`/`--cdp-poc-correlate` manual-verification harnesses, not dead code.
+- **Sub-phase 4 follow-up — post-hide/show re-correlation bugs (found and fixed via live
+  self-testing, not manual user testing):** after sub-phase 4 landed, driving a real
+  `display:none` → `display:block` round trip on a live Edge instance (using the AgentDebugToolkit
+  `set-grid-cell` verb to edit the grid directly) surfaced three related bugs, all now fixed:
+  - **Bug #3 (core):** once an element's `display` is set to `none`, Chromium removes it from the
+    accessibility tree, so the original `AutomationElement` becomes permanently unusable
+    (`ElementNotAvailableException`) — the *next* write (e.g. restoring `display:block`) had no way
+    to re-locate the DOM node at all, since normal correlation depends on a live UIA rect. Fixed by
+    adding `Cdp/CdpCorrelationCache.cs`: on every successful fresh correlation, `CdpBridgeAttempt`
+    now caches `(WebSocketDebuggerUrl, BackendNodeId, LastKnownScreenPoint)` on the selection. When
+    fresh correlation fails (rect/element unavailable, no match found, connection error), a new
+    `TryFallbackToCacheAsync` reconnects directly to the cached WebSocket target and re-uses the
+    cached `BackendNodeId` — CDP backend node ids are stable across the DOM node's lifetime and
+    reusable on a fresh connection to the same page target, confirmed empirically.
+  - **Bug #3b:** the cache-fallback path's post-write property read-back came back completely empty
+    (`display=` `visibility=`) even though the write itself succeeded. Root cause: a bare/fresh
+    `CdpClient` connection that skips `CdpDomCorrelator`'s normal `DOM.enable`/`DOM.getDocument`
+    priming leaves `DOM.pushNodesByBackendIdsToFrontend` (used internally by
+    `CdpPropertyReader.ResolveNodeIdAsync`) silently unable to resolve anything — no exception, just
+    nulls. Fixed by calling `DOM.enable` + `DOM.getDocument(depth:1)` at the start of
+    `TryFallbackToCacheAsync`, exactly as the normal correlation path already does.
+  - **Bug #3c:** after bugs #3/#3b were fixed, the DevTools section correctly reappeared after
+    restoring `display:block`, but the **UIA Properties section did not** — because Chromium
+    creates an entirely new accessibility node when a previously-hidden element becomes visible
+    again, so the original cached `AutomationElement` reference can never become valid again, even
+    once the underlying DOM node is visible. Fixed by caching the center point of the picked
+    element's screen rect (`LastKnownScreenPoint`) alongside the CDP correlation cache entry, and
+    adding `PropertyInspectorSelection.TryRebindSelectedElementAtPoint(x, y)` (calls
+    `AutomationElement.FromPoint` at that cached point). `PropertyInspectorController.
+    TryWriteDevToolsStyle` now retries the UIA property read once via this rebind when the first
+    post-write read comes back null, before falling back to a DevTools-only result.
+  - All three verified end-to-end via live self-testing against a real Edge instance
+    (`--remote-debugging-port=9222`) using AgentDebugToolkit's `set-grid-cell` verb to drive
+    `style.display` between `none`/`block`: final verification showed both "UIA Properties" and
+    "DevTools Properties" groups present after the round trip, with status message "style.display
+    updated through DevTools (CDP). Live properties were refreshed."
+  - Temporary diagnostic logging added during this investigation (in `CdpBridgeAttempt.cs` and
+    `CdpPropertyWriter.cs`, writing to `%TEMP%\cdp-write-diag.log`) was fully removed once the fixes
+    were confirmed working; no diagnostic-only code remains.
+- **Refresh button:** a manual Refresh button (`AutomationId=RefreshButton`, mirroring
+  `PickerElementTreeWindow`'s existing Refresh button styling/icon) was added to the Property
+  Inspector window's title bar, since the UIA-reappearance fix above is a heuristic
+  (screen-point-based) that could miss in edge cases (e.g. scroll/reflow moving the element), and
+  because DOM changes made outside WindowWorks (e.g. directly in browser DevTools, or by page
+  script) are otherwise never picked up without re-picking the element. `PropertyInspectorWindow`
+  gained a `RefreshRequested` event; `PropertyInspectorController.BeginRefresh`/`RefreshAsync` (in
+  `PropertyInspectorController.cs`) re-runs the full UIA+DevTools property read for the current
+  selection on demand, reusing the same full re-fetch sync rule as any write, gated by the same
+  single-in-flight-operation semaphore used for writes so a refresh can't race a concurrent write.
+  Verified working via live self-testing: clicking the button produced status message "Properties
+  refreshed." with the grid correctly repopulated.
 
 
 ## 1. Goal

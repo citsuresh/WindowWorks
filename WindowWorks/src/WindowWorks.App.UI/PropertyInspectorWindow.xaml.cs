@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Automation;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -22,6 +23,18 @@ namespace WindowWorks.App.UI
     /// property only requires attaching a new writer where that property is read.
     /// </summary>
     public delegate (bool Success, string? ErrorMessage) Win32BoolWriter(IntPtr hwnd, bool desiredValue);
+
+    /// <summary>
+    /// Which backend a property row came from (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase
+    /// E): <see cref="Uia"/> rows are always present; <see cref="DevTools"/> rows only appear
+    /// when a live CDP connection succeeded and the picked element was correlated to a DOM node.
+    /// Used to group the grid into two clearly separated sections, never merged.
+    /// </summary>
+    public enum PropertyInspectorPropertySource
+    {
+        Uia,
+        DevTools
+    }
 
     public enum PropertyInspectorEditorKind
     {
@@ -63,9 +76,11 @@ namespace WindowWorks.App.UI
             bool? selectionItemIsSelected = null,
             bool usesSetWindowTextFallback = false,
             bool? win32BoolValue = null,
-            Win32BoolWriter? win32BoolWriter = null)
+            Win32BoolWriter? win32BoolWriter = null,
+            PropertyInspectorPropertySource source = PropertyInspectorPropertySource.Uia)
         {
             Name = name;
+            Source = source;
             EditorKind = editorKind;
             CanEdit = canEdit;
             DisabledReason = disabledReason;
@@ -91,6 +106,8 @@ namespace WindowWorks.App.UI
         }
 
         public string Name { get; }
+        public PropertyInspectorPropertySource Source { get; }
+        public string SourceHeader => Source == PropertyInspectorPropertySource.Uia ? "UIA Properties" : "DevTools Properties";
         public PropertyInspectorEditorKind EditorKind { get; }
         public bool CanEdit { get; }
         public bool IsReadOnly => !CanEdit || EditorKind == PropertyInspectorEditorKind.ReadOnly;
@@ -231,6 +248,7 @@ namespace WindowWorks.App.UI
             SelectedElementRuntimeId = selectedElementRuntimeId;
             DataContext = this;
             InitializeComponent();
+            ApplyGrouping();
 
             // As with PickerElementTreeWindow's HandleNavKey/NavKeyboardProc (see that class's
             // doc comment for the full diagnostic history), arrow-key WM_KEYDOWN messages never
@@ -351,9 +369,39 @@ namespace WindowWorks.App.UI
         public event Action<PropertyInspectorProperty>? InvokeCommitRequested;
         public event Action<PropertyInspectorProperty, System.Windows.Rect>? TransformCommitRequested;
 
+        /// <summary>
+        /// Raised when the user clicks the Refresh button (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md
+        /// §4 Phase E follow-up): re-runs the full UIA+DevTools property read for the current
+        /// selection on demand, mirroring the same manual-refresh affordance already present on
+        /// <see cref="PickerElementTreeWindow"/>. Useful when the element changed outside of a
+        /// WindowWorks-driven write (e.g. edited directly in browser DevTools, or by page script)
+        /// and the grid otherwise only refreshes automatically after this app's own writes.
+        /// </summary>
+        public event Action? RefreshRequested;
+
         public void UpdateProperties(IReadOnlyList<PropertyInspectorProperty> properties)
         {
             Properties = properties ?? throw new ArgumentNullException(nameof(properties));
+            ApplyGrouping();
+        }
+
+        /// <summary>
+        /// Groups the grid by <see cref="PropertyInspectorProperty.SourceHeader"/> so the UIA and
+        /// DevTools sections always render as two clearly separated groups (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E) rather than a merged/unified list. Must
+        /// be re-applied any time <see cref="Properties"/> changes, since assigning a new
+        /// ItemsSource resets the collection view's group descriptions.
+        /// </summary>
+        private void ApplyGrouping()
+        {
+            var view = CollectionViewSource.GetDefaultView(PropertyDataGrid.ItemsSource);
+            if (view is null)
+            {
+                return;
+            }
+
+            view.GroupDescriptions.Clear();
+            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(PropertyInspectorProperty.SourceHeader)));
         }
 
         public void ShowOperationFailure(string message)
@@ -371,6 +419,11 @@ namespace WindowWorks.App.UI
         private void OnCloseClick(object sender, RoutedEventArgs e)
         {
             Close();
+        }
+
+        private void OnRefreshClick(object sender, RoutedEventArgs e)
+        {
+            RefreshRequested?.Invoke();
         }
 
         private void InlineTextBox_PreviewKeyDown(object sender, KeyEventArgs e)

@@ -210,6 +210,19 @@ namespace WindowWorks.App
                 return null;
             }
 
+            return TryFindDocumentRootFromElement(element);
+        }
+
+        /// <summary>
+        /// Same walk as <see cref="TryFindDocumentRoot(IntPtr, int, int)"/> but starting from an
+        /// already-resolved <see cref="AutomationElement"/> instead of re-resolving one from a
+        /// screen point — used for Property Inspector sub-phase 3 (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E), where the picked element is already
+        /// known (<c>PropertyInspectorSelection.SelectedElement</c>) and re-hit-testing the same
+        /// screen point later could resolve a different element if the page has since changed.
+        /// </summary>
+        public static AutomationElement? TryFindDocumentRootFromElement(AutomationElement? element)
+        {
             if (element is null)
             {
                 return null;

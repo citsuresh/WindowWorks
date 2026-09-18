@@ -33,7 +33,17 @@
       write on either side, browser remote-debugging-port requirement,
       Chromium-only scope) is written up in full in
       `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` §4 Phase E. **In progress:**
-      sub-phase 1 (CDP bridge proof of concept) and sub-phase 2 (element
-      correlation) complete and manually verified (correlation confidence
-      0.98-0.99 against a live Brave instance); sub-phases 3-5 (read-only
-      display, write path/hide-show, broader property set) not yet started.
+      sub-phases 1-4 (CDP bridge PoC, element correlation, read-only display,
+      write path + hide/show via `style.display`/`style.visibility`) complete
+      and verified end-to-end against live Brave/Edge instances
+      (correlation confidence 0.98-0.99; DevTools write confirmed refreshing
+      both property sections). Three follow-up architectural bugs found via
+      live self-testing (re-correlation after a `display:none` write losing
+      its UIA anchor; a cache-fallback read-back priming bug; the UIA section
+      not reappearing after show/hide because Chromium creates a new
+      accessibility node) were all found and fixed — see
+      `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` §4 Phase E "Sub-phase 4
+      follow-up". A manual Refresh button was also added to the inspector
+      window's title bar. Sub-phase 5 (broader DevTools property/action
+      set: arbitrary attribute read/write, real DOM events, full computed
+      CSS) not yet started — lower priority, deferred.
