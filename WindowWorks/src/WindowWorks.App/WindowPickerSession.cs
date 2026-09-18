@@ -311,9 +311,7 @@ namespace WindowWorks.App
                     _includePopOutPicks,
                     _includeCropEntry,
                     includeElementTreeEntry: _mode == WindowPickerMode.Reparenting
-                        || (_mode == WindowPickerMode.PropertyInspector
-                            && topLevelEntry is not null
-                            && !BrowserClassifier.IsChromiumFamily(topLevelEntry.ClassName))));
+                        || (_mode == WindowPickerMode.PropertyInspector && topLevelEntry is not null)));
                 if (!_boxList.IsVisible)
                 {
                     _boxList.Show();

@@ -10,6 +10,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Automation;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace WindowWorks.App.UI
 {
@@ -211,6 +212,14 @@ namespace WindowWorks.App.UI
     public partial class PropertyInspectorWindow : Window, INotifyPropertyChanged
     {
         private IReadOnlyList<PropertyInspectorProperty> _properties;
+        private IntPtr _navKeyboardHook;
+        private NativeMethods.LowLevelKeyboardProc? _navKeyboardProc;
+
+        private static readonly Dictionary<uint, Key> NavVkMap = new()
+        {
+            [0x26] = Key.Up,
+            [0x28] = Key.Down,
+        };
 
         public PropertyInspectorWindow(
             CapturedIdentitySnapshot? capturedIdentity,
@@ -222,6 +231,102 @@ namespace WindowWorks.App.UI
             SelectedElementRuntimeId = selectedElementRuntimeId;
             DataContext = this;
             InitializeComponent();
+
+            // As with PickerElementTreeWindow's HandleNavKey/NavKeyboardProc (see that class's
+            // doc comment for the full diagnostic history), arrow-key WM_KEYDOWN messages never
+            // reach this window's normal WPF PreviewKeyDown routing at all - regardless of
+            // handledEventsToo - even though the window genuinely has real Win32
+            // foreground/focus status and other keys (typed characters) come through fine. A
+            // low-level keyboard hook, which observes keys before that point, is used instead.
+            Loaded += (_, _) => EnsureNavKeyboardHook();
+            Closed += (_, _) => RemoveNavKeyboardHook();
+        }
+
+        private void EnsureNavKeyboardHook()
+        {
+            if (_navKeyboardHook != IntPtr.Zero)
+            {
+                return;
+            }
+
+            _navKeyboardProc = NavKeyboardProc;
+            _navKeyboardHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WH_KEYBOARD_LL,
+                _navKeyboardProc,
+                IntPtr.Zero,
+                0);
+        }
+
+        private void RemoveNavKeyboardHook()
+        {
+            if (_navKeyboardHook != IntPtr.Zero)
+            {
+                NativeMethods.UnhookWindowsHookEx(_navKeyboardHook);
+                _navKeyboardHook = IntPtr.Zero;
+            }
+
+            _navKeyboardProc = null;
+        }
+
+        private IntPtr NavKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && wParam == new IntPtr(NativeMethods.WM_KEYDOWN))
+            {
+                var key = Marshal.PtrToStructure<NativeMethods.KBDLLHOOKSTRUCT>(lParam);
+                if (NavVkMap.TryGetValue(key.vkCode, out var mappedKey) && IsThisWindowForeground())
+                {
+                    Dispatcher.BeginInvoke(new Action(() => NavigateRow(mappedKey)));
+                }
+            }
+
+            return NativeMethods.CallNextHookEx(_navKeyboardHook, nCode, wParam, lParam);
+        }
+
+        private bool IsThisWindowForeground()
+        {
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            return hwnd != IntPtr.Zero && NativeMethods.GetForegroundWindow() == hwnd;
+        }
+
+        /// <summary>
+        /// Moves the PropertyDataGrid's selection up/down one row, driven by <see cref="NavKeyboardProc"/>
+        /// instead of a normal PreviewKeyDown handler (see that method's doc comment). Skipped
+        /// while a ComboBox dropdown is open so Up/Down still navigates its options as expected.
+        /// </summary>
+        private void NavigateRow(Key key)
+        {
+            if (Keyboard.FocusedElement is ComboBox { IsDropDownOpen: true })
+            {
+                return;
+            }
+
+            var currentCell = Keyboard.FocusedElement is DependencyObject focused
+                ? FindAncestorOrSelf<DataGridCell>(focused)
+                : null;
+            var currentRow = currentCell is null
+                ? (Keyboard.FocusedElement is DependencyObject focusedForRow ? FindAncestorOrSelf<DataGridRow>(focusedForRow) : null)
+                : FindAncestorOrSelf<DataGridRow>(currentCell);
+
+            int rowIndex = currentRow is null
+                ? -1
+                : PropertyDataGrid.ItemContainerGenerator.IndexFromContainer(currentRow);
+
+            int newIndex = key == Key.Up ? rowIndex - 1 : rowIndex + 1;
+            if (rowIndex < 0)
+            {
+                newIndex = 0;
+            }
+
+            if (newIndex < 0 || newIndex >= PropertyDataGrid.Items.Count)
+            {
+                return;
+            }
+
+            int columnIndex = currentCell is not null ? currentCell.Column?.DisplayIndex ?? 1 : 1;
+
+            PropertyDataGrid.SelectedIndex = newIndex;
+            PropertyDataGrid.ScrollIntoView(PropertyDataGrid.Items[newIndex]);
+            Dispatcher.BeginInvoke(new Action(() => FocusRowCellEditor(newIndex, columnIndex)), DispatcherPriority.Input);
         }
 
         public CapturedIdentitySnapshot? CapturedIdentity { get; }
@@ -302,6 +407,69 @@ namespace WindowWorks.App.UI
             {
                 CommitTextEdit(textBox, textBox.Text ?? string.Empty);
             }
+        }
+
+        private void FocusRowCellEditor(int rowIndex, int columnIndex)
+        {
+            PropertyDataGrid.UpdateLayout();
+            if (PropertyDataGrid.ItemContainerGenerator.ContainerFromIndex(rowIndex) is not DataGridRow row)
+            {
+                return;
+            }
+
+            var cell = FindDataGridCell(row, columnIndex);
+            if (cell is null)
+            {
+                return;
+            }
+
+            PropertyDataGrid.UpdateLayout();
+            var editor = FindVisualDescendant<TextBox>(cell)
+                ?? FindVisualDescendant<ToggleButton>(cell)
+                ?? (Control?)FindVisualDescendant<ComboBox>(cell);
+            if (editor is not null)
+            {
+                editor.Focus();
+                if (editor is TextBox textBox)
+                {
+                    textBox.SelectAll();
+                }
+            }
+            else
+            {
+                cell.Focus();
+            }
+        }
+
+        private static DataGridCell? FindDataGridCell(DataGridRow row, int columnIndex)
+        {
+            var presenter = FindVisualDescendant<DataGridCellsPresenter>(row);
+            if (presenter is null)
+            {
+                return null;
+            }
+
+            return (DataGridCell?)presenter.ItemContainerGenerator.ContainerFromIndex(columnIndex);
+        }
+
+        private static T? FindVisualDescendant<T>(DependencyObject root) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match)
+                {
+                    return match;
+                }
+
+                var descendant = FindVisualDescendant<T>(child);
+                if (descendant is not null)
+                {
+                    return descendant;
+                }
+            }
+            return null;
         }
 
         private void ApplyTextButton_Click(object sender, RoutedEventArgs e)
@@ -666,6 +834,8 @@ namespace WindowWorks.App.UI
         private static class NativeMethods
         {
             public const uint MAPVK_VK_TO_VSC = 0;
+            public const int WH_KEYBOARD_LL = 13;
+            public const int WM_KEYDOWN = 0x0100;
 
             [DllImport("user32.dll")]
             public static extern bool ReleaseCapture();
@@ -682,6 +852,30 @@ namespace WindowWorks.App.UI
             [DllImport("user32.dll")]
             public static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState,
                 StringBuilder pwszBuff, int cchBuff, uint wFlags);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr GetForegroundWindow();
+
+            public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+            [StructLayout(LayoutKind.Sequential)]
+            public struct KBDLLHOOKSTRUCT
+            {
+                public uint vkCode;
+                public uint scanCode;
+                public uint flags;
+                public uint time;
+                public IntPtr dwExtraInfo;
+            }
         }
     }
 }

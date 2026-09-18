@@ -361,7 +361,8 @@
                            TextWrapping="Wrap"
                            Text="Inline edits commit on Enter/focus loss (text) or immediately on change (checkbox/combo)." />
             </Border>
-            <DataGrid ItemsSource="{Binding Properties}"
+            <DataGrid x:Name="PropertyDataGrid"
+                      ItemsSource="{Binding Properties}"
                       IsReadOnly="False"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
@@ -375,10 +376,10 @@
                       HorizontalGridLinesBrush="#33FFFFFF"
                       HeadersVisibility="Column">
                 <DataGrid.Resources>
-                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#FFFFB74D" />
-                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#FF1E1E1E" />
-                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FFFFB74D" />
-                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#FF1E1E1E" />
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#40FFB74D" />
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="White" />
+                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#40FFB74D" />
+                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="White" />
                     <Style TargetType="DataGridColumnHeader">
                         <Setter Property="Background" Value="#331E1E1E" />
                         <Setter Property="Foreground" Value="#FFFFB74D" />
@@ -392,9 +393,17 @@
                         <Setter Property="BorderThickness" Value="0" />
                         <Setter Property="Padding" Value="6,3" />
                         <Style.Triggers>
+                            <!-- Translucent overlay + border instead of a solid orange fill: a
+                                 solid fill combined with an opaque dark Foreground override left
+                                 child controls with their own hardcoded Foreground (e.g. the
+                                 read-only value TextBlock's gray text) unreadable, since that
+                                 override doesn't propagate into arbitrary templated child
+                                 controls. This keeps every editor's own text color legible while
+                                 still showing a clear selection indicator. -->
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="#FFFFB74D" />
-                                <Setter Property="Foreground" Value="#FF1E1E1E" />
+                                <Setter Property="Background" Value="#40FFB74D" />
+                                <Setter Property="BorderBrush" Value="#FFFFB74D" />
+                                <Setter Property="BorderThickness" Value="0,1,0,1" />
                             </Trigger>
                         </Style.Triggers>
                     </Style>
