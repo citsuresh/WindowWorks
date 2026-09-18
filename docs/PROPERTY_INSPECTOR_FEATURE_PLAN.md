@@ -7,8 +7,9 @@
 
 ### Phase A — UIA (native controls) proof of concept
 
-- **Status:** Increment 1 implementation complete (including native Element Tree selection for
-  non-HWND UIA controls); automated review and manual-test evidence pending.
+- **Status:** Increments 1 and 2 implementation complete (including native Element Tree selection
+  for non-HWND UIA controls and UIA-first Name/Text writes with a SetWindowText fallback);
+  automated review and manual-test evidence pending.
 - **Regression fixes:** Keyboard-only shortcut confirmation/cancellation, failed hotkey
   registration reporting/restoration, and selection-time UIA identity freezing are fixed;
   automated review and manual-test evidence remain pending.

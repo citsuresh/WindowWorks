@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace WindowWorks.App
@@ -12,6 +13,22 @@ namespace WindowWorks.App
         [STAThread]
         static void Main()
         {
+            // Single-instance guard: WindowWorks is a tray-only app with global hotkeys, so
+            // running a second instance would register duplicate hotkeys/tray icons and race
+            // over the same shared state files. Use a named mutex to detect an existing
+            // instance and exit immediately (with a notification) instead of starting a
+            // conflicting second instance.
+            using var singleInstanceMutex = new Mutex(true, @"Local\WindowWorks.SingleInstance", out bool createdNew);
+            if (!createdNew)
+            {
+                MessageBox.Show(
+                    "WindowWorks is already running. Check the system tray for its icon.",
+                    "WindowWorks",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
             ApplicationConfiguration.Initialize();
 
             // Create core services

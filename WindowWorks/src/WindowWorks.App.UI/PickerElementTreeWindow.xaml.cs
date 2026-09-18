@@ -367,7 +367,16 @@ namespace WindowWorks.App.UI
                     continue;
                 }
 
-                if (obj is ElementTreeNodeItem { HasChildren: true })
+                // Check for any real (non-placeholder) children rather than the HasChildren flag:
+                // materialized/eager snapshot nodes (Property Inspector's native-window tree,
+                // see DomElementTreeBuilder.BuildSnapshotNode) always report HasChildren: false
+                // (they have no lazy loader to report), but their Children collection is already
+                // fully populated up front — so this node can still legitimately have children to
+                // expand into even though HasChildren is false.
+                bool hasRealChildren = obj is ElementTreeNodeItem node
+                    && node.Children.Count > 0
+                    && !ReferenceEquals(node.Children[0], ElementTreeNodeItem.PlaceholderNode);
+                if (hasRealChildren)
                 {
                     item.IsExpanded = true;
                 }

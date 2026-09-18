@@ -1,12 +1,340 @@
 <Window x:Class="WindowWorks.App.UI.PropertyInspectorWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WindowWorks.App.UI"
         Title="Inspect UI Element"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip" ShowActivated="True" Width="560" Height="360" MinWidth="420" MinHeight="220">
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
+    <Window.Resources>
+        <Style x:Key="InspectorTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="#FF1E1E1E" />
+            <Setter Property="BorderBrush" Value="#CCFFB74D" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="CaretBrush" Value="#FFFFB74D" />
+            <Setter Property="Padding" Value="5,3" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="InspectorCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
+
+        <Style x:Key="InspectorToggleSwitchStyle" TargetType="ToggleButton">
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid>
+                            <Border x:Name="SwitchTrack" Width="40" Height="20" CornerRadius="10"
+                                    Background="#FF3C3C3C" BorderBrush="#CCFFB74D" BorderThickness="1"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center" />
+                            <Border x:Name="SwitchThumb" Width="16" Height="16" CornerRadius="8"
+                                    Background="#FFB0B0B0" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Margin="2,0,0,0" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="#FFFFB74D" />
+                                <Setter TargetName="SwitchThumb" Property="Background" Value="#FF1E1E1E" />
+                                <Setter TargetName="SwitchThumb" Property="Margin" Value="22,0,0,0" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="{x:Null}">
+                                <Setter TargetName="SwitchTrack" Property="Background" Value="#FF5A5A5A" />
+                                <Setter TargetName="SwitchThumb" Property="Margin" Value="12,0,0,0" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SwitchTrack" Property="Opacity" Value="0.5" />
+                                <Setter TargetName="SwitchThumb" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="InspectorButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#FF1E1E1E" />
+            <Setter Property="Foreground" Value="#FFFFB74D" />
+            <Setter Property="BorderBrush" Value="#CCFFB74D" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Margin="{TemplateBinding Padding}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="Background" Value="#FFFFB74D" />
+                                <Setter Property="Foreground" Value="#FF1E1E1E" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#66FFB74D" />
+                                <Setter Property="BorderBrush" Value="#55FFB74D" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="InspectorComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#FF1E1E1E" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Padding" Value="6,3" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="ItemBorder" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#FFFFB74D" />
+                                <Setter Property="Foreground" Value="#FF1E1E1E" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#553C3C3C" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True" />
+                                    <Condition Property="IsHighlighted" Value="True" />
+                                </MultiTrigger.Conditions>
+                                <Setter TargetName="ItemBorder" Property="Background" Value="#FFFFB74D" />
+                                <Setter Property="Foreground" Value="#FF1E1E1E" />
+                            </MultiTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="InspectorComboBoxToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="Transparent" BorderThickness="0">
+                            <Path x:Name="Arrow" Data="M0,0 L4,4 L8,0" Stroke="#FFFFB74D" StrokeThickness="1.5"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="InspectorComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="#FF1E1E1E" />
+            <Setter Property="BorderBrush" Value="#CCFFB74D" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource InspectorComboBoxItemStyle}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="Chrome"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="20" />
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter x:Name="ContentSite"
+                                                       Grid.Column="0"
+                                                       Content="{TemplateBinding SelectionBoxItem}"
+                                                       ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                       ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                       Margin="{TemplateBinding Padding}"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalAlignment="Left"
+                                                       IsHitTestVisible="False"
+                                                       TextBlock.Foreground="{TemplateBinding Foreground}" />
+                                    <ToggleButton x:Name="ToggleButton"
+                                                  Grid.Column="1"
+                                                  Style="{StaticResource InspectorComboBoxToggleButtonStyle}"
+                                                  Background="Transparent"
+                                                  BorderThickness="0"
+                                                  IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                                  ClickMode="Press" />
+                                </Grid>
+                            </Border>
+                            <Popup x:Name="Popup" Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="#FF1E1E1E" BorderBrush="#CCFFB74D" BorderThickness="1"
+                                        MinWidth="{TemplateBinding ActualWidth}" MaxHeight="200"
+                                        SnapsToDevicePixels="True">
+                                    <ScrollViewer SnapsToDevicePixels="True">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ReadOnlyValueTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FF9A9A9A" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <DataTemplate x:Key="ReadOnlyPropertyTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <TextBlock Text="{Binding Value}"
+                       Style="{StaticResource ReadOnlyValueTextStyle}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TextEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource InspectorTextBoxStyle}"
+                         Tag="{Binding}"
+                         PreviewKeyDown="InlineTextBox_PreviewKeyDown"
+                         LostKeyboardFocus="InlineTextBox_LostKeyboardFocus" />
+                <Button Grid.Column="1" Content="Apply" Margin="4,0,0,0" Style="{StaticResource InspectorButtonStyle}" IsEnabled="{Binding CanEdit}" Tag="{Binding}" Click="ApplyTextButton_Click" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RangeEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource InspectorTextBoxStyle}"
+                         Tag="{Binding}"
+                         PreviewKeyDown="InlineTextBox_PreviewKeyDown"
+                         LostKeyboardFocus="InlineTextBox_LostKeyboardFocus"
+                         ToolTip="{Binding RangeTooltip}" />
+                <Button Grid.Column="1" Content="Apply" Margin="4,0,0,0" Style="{StaticResource InspectorButtonStyle}" IsEnabled="{Binding CanEdit}" Tag="{Binding}" Click="ApplyTextButton_Click" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ToggleEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <ToggleButton IsThreeState="True"
+                      IsChecked="{Binding EditNullableBool}"
+                      Style="{StaticResource InspectorToggleSwitchStyle}"
+                      Tag="{Binding}"
+                      Click="ToggleCheckBox_Click" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="SelectionItemTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <ToggleButton IsChecked="{Binding EditBool}"
+                      IsEnabled="{Binding CanEdit}"
+                      Style="{StaticResource InspectorToggleSwitchStyle}"
+                      Tag="{Binding}"
+                      Click="SelectionItemCheckBox_Click"
+                      ToolTip="{Binding DisabledReason}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="Win32BoolTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <ToggleButton IsChecked="{Binding EditBool}"
+                      IsEnabled="{Binding CanEdit}"
+                      Style="{StaticResource InspectorToggleSwitchStyle}"
+                      Tag="{Binding}"
+                      Click="Win32BoolCheckBox_Click"
+                      ToolTip="{Binding DisabledReason}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="LegacyTextEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource InspectorTextBoxStyle}"
+                         Tag="{Binding}"
+                         PreviewKeyDown="InlineTextBox_PreviewKeyDown"
+                         LostKeyboardFocus="InlineTextBox_LostKeyboardFocus"
+                         ToolTip="{Binding DisabledReason}" />
+                <Button Grid.Column="1" Content="Apply" Margin="4,0,0,0" Style="{StaticResource InspectorButtonStyle}" IsEnabled="{Binding CanEdit}" Tag="{Binding}" Click="ApplyTextButton_Click" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="InvokeActionTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <Button Content="Invoke (Legacy)"
+                    Style="{StaticResource InspectorButtonStyle}"
+                    IsEnabled="{Binding CanEdit}"
+                    Tag="{Binding}"
+                    Click="InvokeButton_Click"
+                    ToolTip="{Binding DisabledReason}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="TransformEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0"
+                         Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                         Style="{StaticResource InspectorTextBoxStyle}"
+                         Tag="{Binding}"
+                         PreviewKeyDown="TransformTextBox_PreviewKeyDown"
+                         LostKeyboardFocus="TransformTextBox_LostKeyboardFocus"
+                         ToolTip="{Binding DisabledReason, TargetNullValue='Format: X, Y, Width, Height'}" />
+                <Button Grid.Column="1" Content="Apply" Margin="4,0,0,0" Style="{StaticResource InspectorButtonStyle}" IsEnabled="{Binding CanEdit}" Tag="{Binding}" Click="ApplyTransformButton_Click" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ComboBoxEditorTemplate" DataType="{x:Type local:PropertyInspectorProperty}">
+            <ComboBox ItemsSource="{Binding Options}"
+                      SelectedItem="{Binding EditText}"
+                      IsEnabled="{Binding CanEdit}"
+                      Style="{StaticResource InspectorComboBoxStyle}"
+                      Tag="{Binding}"
+                      SelectionChanged="EditorComboBox_SelectionChanged"
+                      Loaded="EditorComboBox_Loaded"
+                      ToolTip="{Binding DisabledReason}" />
+        </DataTemplate>
+
+        <local:PropertyInspectorEditorTemplateSelector x:Key="EditorTemplateSelector"
+                                                       ReadOnlyTemplate="{StaticResource ReadOnlyPropertyTemplate}"
+                                                       TextTemplate="{StaticResource TextEditorTemplate}"
+                                                       ToggleTemplate="{StaticResource ToggleEditorTemplate}"
+                                                       RangeTemplate="{StaticResource RangeEditorTemplate}"
+                                                       SelectionItemTemplate="{StaticResource SelectionItemTemplate}"
+                                                       ExpandCollapseTemplate="{StaticResource ComboBoxEditorTemplate}"
+                                                       WindowVisualStateTemplate="{StaticResource ComboBoxEditorTemplate}"
+                                                       Win32BoolTemplate="{StaticResource Win32BoolTemplate}"
+                                                       LegacyTextTemplate="{StaticResource LegacyTextEditorTemplate}"
+                                                       InvokeTemplate="{StaticResource InvokeActionTemplate}"
+                                                       TransformTemplate="{StaticResource TransformEditorTemplate}" />
+    </Window.Resources>
     <Border Background="#EE2B2B2B" BorderBrush="#CCFFB74D" BorderThickness="1" CornerRadius="3" Padding="4">
         <DockPanel LastChildFill="True">
             <Grid DockPanel.Dock="Top" Margin="4,2,4,6" Background="Transparent" Cursor="SizeAll"
@@ -26,8 +354,15 @@
                     </Button>
                 </StackPanel>
             </Grid>
+            <Border DockPanel.Dock="Bottom" Margin="4,6,4,2" Padding="6"
+                    Background="#331E1E1E" BorderBrush="#55FFFFFF" BorderThickness="1">
+                <TextBlock x:Name="StatusTextBlock"
+                           Foreground="#FFDDDDDD"
+                           TextWrapping="Wrap"
+                           Text="Inline edits commit on Enter/focus loss (text) or immediately on change (checkbox/combo)." />
+            </Border>
             <DataGrid ItemsSource="{Binding Properties}"
-                      IsReadOnly="True"
+                      IsReadOnly="False"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"
                       CanUserDeleteRows="False"
@@ -63,10 +398,25 @@
                             </Trigger>
                         </Style.Triggers>
                     </Style>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsReadOnly}" Value="True">
+                                <Setter Property="Background" Value="#16111111" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
                 </DataGrid.Resources>
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Property" Binding="{Binding Name}" Width="190" />
-                    <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
+                    <DataGridTextColumn Header="Property" Binding="{Binding Name}" Width="220" IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="Value" Width="*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <ContentControl Content="{Binding}"
+                                                ContentTemplateSelector="{StaticResource EditorTemplateSelector}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
         </DockPanel>

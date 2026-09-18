@@ -24,3 +24,11 @@
       of window height, `OverlayTriggerZoneHeightFraction`), an
       always-show vs. hover-only toggle, and overlay appearance (background
       tint/opacity, button size).
+- [ ] Property Inspector feature: element-picker + property editing for
+      non-top-level elements (e.g., browser/DOM child elements). Currently
+      the Property Inspector only shows properties for the top-level window;
+      user wants to pick and inspect/edit a specific child element inside it
+      too (e.g. a DOM node in a browser window). Explicitly deferred by the
+      user until after the current Property Inspector increment (Enter/Apply
+      commit fixes, ComboBox theming, toggle-switch UI, elevated-write
+      handling) is verified and committed.

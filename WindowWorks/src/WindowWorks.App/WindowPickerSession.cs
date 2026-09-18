@@ -942,7 +942,7 @@ namespace WindowWorks.App
 
         private void OnElementTreeNodeConfirmed(object? sender, ElementTreeNodeItem node)
         {
-            if (_disposed || !node.HasScreenRect)
+            if (_disposed)
             {
                 return;
             }
@@ -974,6 +974,11 @@ namespace WindowWorks.App
 
             AncestorChainEntry topLevelEntry;
             IntPtr rootHwnd;
+            if (!node.HasScreenRect)
+            {
+                return;
+            }
+
             if (_elementTreeNativeHwnd != IntPtr.Zero && _elementTreeNativeTopLevelEntry is not null)
             {
                 // §6.7 Piece D: a native-rooted tree confirm is mechanically identical to the
