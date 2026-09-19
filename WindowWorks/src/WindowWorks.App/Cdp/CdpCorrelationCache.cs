@@ -23,15 +23,15 @@ namespace WindowWorks.App.Cdp
         private readonly object _gate = new();
         private string? _webSocketDebuggerUrl;
         private int? _backendNodeId;
-        private (int X, int Y)? _lastKnownScreenPoint;
+        private (int Left, int Top, int Right, int Bottom)? _lastKnownScreenRect;
 
-        public void Update(string webSocketDebuggerUrl, int backendNodeId, (int X, int Y) screenPoint)
+        public void Update(string webSocketDebuggerUrl, int backendNodeId, (int Left, int Top, int Right, int Bottom) screenRect)
         {
             lock (_gate)
             {
                 _webSocketDebuggerUrl = webSocketDebuggerUrl;
                 _backendNodeId = backendNodeId;
-                _lastKnownScreenPoint = screenPoint;
+                _lastKnownScreenRect = screenRect;
             }
         }
 
@@ -53,26 +53,29 @@ namespace WindowWorks.App.Cdp
         }
 
         /// <summary>
-        /// The screen-space point (center of the last successfully-correlated UIA bounding rect)
-        /// at the time of the last successful correlation. Used to re-acquire a fresh
+        /// The screen-space bounding rect of the last successfully-correlated UIA element, at the
+        /// time of the last successful correlation. Used to re-acquire a fresh
         /// <see cref="System.Windows.Automation.AutomationElement"/> via
-        /// <see cref="System.Windows.Automation.AutomationElement.FromPoint"/> after a DevTools
-        /// write makes a previously-hidden element visible again — Chromium creates a brand-new
-        /// accessibility node in that case, so the original element reference can never be reused.
+        /// <see cref="System.Windows.Automation.AutomationElement.FromPoint"/> (hit-testing its
+        /// center) after a DevTools write makes a previously-hidden element visible again —
+        /// Chromium creates a brand-new accessibility node in that case, so the original element
+        /// reference can never be reused. The full rect (not just a point) is kept so the caller
+        /// can verify the rebound element's own rect actually overlaps this one before accepting
+        /// it as the same element — a plain "whatever is at this point now" hit-test is not
+        /// reliable on its own since the page may have scrolled/reflowed since the rect was
+        /// captured.
         /// </summary>
-        public bool TryGetLastKnownScreenPoint(out int x, out int y)
+        public bool TryGetLastKnownScreenRect(out (int Left, int Top, int Right, int Bottom) rect)
         {
             lock (_gate)
             {
-                if (_lastKnownScreenPoint is { } point)
+                if (_lastKnownScreenRect is { } value)
                 {
-                    x = point.X;
-                    y = point.Y;
+                    rect = value;
                     return true;
                 }
 
-                x = 0;
-                y = 0;
+                rect = default;
                 return false;
             }
         }

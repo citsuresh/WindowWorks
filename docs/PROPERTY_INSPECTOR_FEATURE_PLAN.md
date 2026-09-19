@@ -234,6 +234,25 @@
   - Temporary diagnostic logging added during this investigation (in `CdpBridgeAttempt.cs` and
     `CdpPropertyWriter.cs`, writing to `%TEMP%\cdp-write-diag.log`) was fully removed once the fixes
     were confirmed working; no diagnostic-only code remains.
+  - Regression Audit (code-review subagent, independent of implementation rationale) run against
+    the committed diff found one high-severity issue, fixed before this follow-up was considered
+    done: `TryRebindSelectedElementAtPoint` accepted *whatever* live UIA element
+    `AutomationElement.FromPoint` found at the cached screen point with no verification that it
+    was actually the same element — if the page had scrolled/reflowed since the point was
+    captured (plausible right after a `display`/`visibility` write, exactly what triggers this
+    path), the inspector could silently rebind to a completely unrelated element with no
+    user-visible indication. Fixed by caching the full last-known screen *rect* (not just its
+    center point) on `CdpCorrelationCache`, and changing the rebind method
+    (now `TryRebindSelectedElementAtRect`) to compute an intersection-over-union score between the
+    rebind candidate's own bounding rect and the cached rect, requiring at least 0.3 IoU overlap
+    before accepting the rebind — otherwise the selection is left unchanged, same as any other
+    rebind failure. Re-verified end-to-end via live self-testing: the hide/show round trip still
+    correctly reappears both grid sections. A related lower-severity finding (the cache's rect
+    isn't refreshed on a cache-*fallback* success, only on fresh correlation, so it can grow
+    increasingly stale across repeated hide/show cycles) was noted but not fixed in this pass —
+    the overlap-check fix already closes the practical safety gap since a stale rect will now
+    simply fail the overlap check rather than silently accepting a wrong element; deferred as a
+    lower-priority follow-up.
 - **Refresh button:** a manual Refresh button (`AutomationId=RefreshButton`, mirroring
   `PickerElementTreeWindow`'s existing Refresh button styling/icon) was added to the Property
   Inspector window's title bar, since the UIA-reappearance fix above is a heuristic

@@ -142,9 +142,7 @@ namespace WindowWorks.App.Cdp
                         correlation = await CdpDomCorrelator.CorrelateAsync(client, documentScreenRect, pickedScreenRect).ConfigureAwait(false);
                         if (correlation.Success)
                         {
-                            int centerX = (pickedScreenRect.Left + pickedScreenRect.Right) / 2;
-                            int centerY = (pickedScreenRect.Top + pickedScreenRect.Bottom) / 2;
-                            cache.Update(target.WebSocketDebuggerUrl!, correlation.BackendNodeId, (centerX, centerY));
+                            cache.Update(target.WebSocketDebuggerUrl!, correlation.BackendNodeId, pickedScreenRect);
 
                             if (writeStep is not null)
                             {

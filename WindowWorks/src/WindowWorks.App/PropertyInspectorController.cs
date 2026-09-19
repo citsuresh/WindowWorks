@@ -1163,8 +1163,8 @@ namespace WindowWorks.App
                     // the old reference never becomes valid again even though the element is now
                     // visible. Try to re-acquire a fresh element at the cached screen point before
                     // concluding the element is genuinely still unavailable to UIA.
-                    if (selection.CdpCache.TryGetLastKnownScreenPoint(out int screenX, out int screenY)
-                        && selection.TryRebindSelectedElementAtPoint(screenX, screenY))
+                    if (selection.CdpCache.TryGetLastKnownScreenRect(out var lastKnownScreenRect)
+                        && selection.TryRebindSelectedElementAtRect(lastKnownScreenRect))
                     {
                         uiaResult = TryReadProperties(selection);
                     }
