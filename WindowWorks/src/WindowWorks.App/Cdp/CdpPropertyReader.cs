@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
@@ -15,10 +16,17 @@ namespace WindowWorks.App.Cdp
     {
         public string? Display { get; init; }
         public string? Visibility { get; init; }
-        public string? ClassAttribute { get; init; }
-        public string? IdAttribute { get; init; }
         public string? InnerText { get; init; }
         public (double Left, double Top, double Width, double Height)? PageBoundingBox { get; init; }
+
+        /// <summary>
+        /// Every HTML attribute present on the element (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md
+        /// §4 Phase E, sub-phase 5), in document order as reported by
+        /// <c>DOM.describeNode</c>. Includes <c>class</c>/<c>id</c> alongside every other
+        /// attribute (e.g. <c>href</c>, <c>src</c>, <c>data-*</c>) rather than special-casing
+        /// just those two, since the whole point of sub-phase 5 is generic attribute read/write.
+        /// </summary>
+        public IReadOnlyList<(string Name, string Value)> Attributes { get; init; } = Array.Empty<(string, string)>();
     }
 
     /// <summary>
@@ -39,7 +47,7 @@ namespace WindowWorks.App.Cdp
                     .SendCommandAsync("DOM.describeNode", new { backendNodeId })
                     .ConfigureAwait(false);
                 var node = describeResult?["node"];
-                var (classAttr, idAttr) = ExtractClassAndId(node?["attributes"] as JsonArray);
+                var attributes = ExtractAttributes(node?["attributes"] as JsonArray);
 
                 string? display = null;
                 string? visibility = null;
@@ -124,10 +132,9 @@ namespace WindowWorks.App.Cdp
                 {
                     Display = display,
                     Visibility = visibility,
-                    ClassAttribute = classAttr,
-                    IdAttribute = idAttr,
                     InnerText = innerText,
-                    PageBoundingBox = boxModel
+                    PageBoundingBox = boxModel,
+                    Attributes = attributes
                 };
             }
             catch (Exception ex) when (IsExpectedCdpFailure(ex))
@@ -147,30 +154,25 @@ namespace WindowWorks.App.Cdp
             return nodeIds is { Count: > 0 } ? nodeIds[0]?.GetValue<int>() : null;
         }
 
-        private static (string? ClassAttr, string? IdAttr) ExtractClassAndId(JsonArray? flatAttributes)
+        private static IReadOnlyList<(string Name, string Value)> ExtractAttributes(JsonArray? flatAttributes)
         {
             if (flatAttributes is null)
             {
-                return (null, null);
+                return Array.Empty<(string, string)>();
             }
 
-            string? className = null;
-            string? id = null;
+            var attributes = new List<(string Name, string Value)>();
             for (int i = 0; i + 1 < flatAttributes.Count; i += 2)
             {
                 string? name = flatAttributes[i]?.GetValue<string>();
                 string? value = flatAttributes[i + 1]?.GetValue<string>();
-                if (name == "class")
+                if (!string.IsNullOrEmpty(name))
                 {
-                    className = value;
-                }
-                else if (name == "id")
-                {
-                    id = value;
+                    attributes.Add((name, value ?? string.Empty));
                 }
             }
 
-            return (className, id);
+            return attributes;
         }
 
         private static bool IsExpectedCdpFailure(Exception ex) =>

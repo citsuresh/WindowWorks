@@ -367,6 +367,16 @@
                            TextWrapping="Wrap"
                            Text="Inline edits commit on Enter/focus loss (text) or immediately on change (checkbox/combo)." />
             </Border>
+            <Border x:Name="DevToolsUnavailableBar" DockPanel.Dock="Bottom" Margin="4,0,4,2" Padding="6"
+                    Background="#33FFB74D" BorderBrush="#88FFB74D" BorderThickness="1" Visibility="Collapsed">
+                <StackPanel Orientation="Vertical">
+                    <TextBlock Foreground="#FFEED9B0" TextWrapping="Wrap"
+                               Text="DevTools properties unavailable — the browser wasn't launched with debugging enabled." />
+                    <Button x:Name="RelaunchDevToolsButton" Content="Open a DevTools-enabled copy of this page"
+                            HorizontalAlignment="Left" Margin="0,6,0,0" Padding="8,3"
+                            Style="{StaticResource InspectorButtonStyle}" Click="OnRelaunchDevToolsClick" />
+                </StackPanel>
+            </Border>
             <DataGrid x:Name="PropertyDataGrid"
                       ItemsSource="{Binding Properties}"
                       IsReadOnly="False"

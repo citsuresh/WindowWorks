@@ -57,7 +57,7 @@
   elements per §6's known constraint, since they have no real HWND). Manually confirmed by the
   user across multiple real browser instances/pages.
 
-### Phase E — DevTools (CDP) bridge as an additive second property section — IN PROGRESS
+### Phase E — DevTools (CDP) bridge as an additive second property section — SUBSTANTIALLY COMPLETE
 
 - **Status:** Sub-phase 1 (CDP bridge proof of concept) ✅ COMPLETE, manually verified.
   Sub-phase 2 (element correlation) ✅ COMPLETE, manually verified against a real Brave instance
@@ -67,9 +67,16 @@
   `display:none` write, cache-fallback property read priming, UIA-section reappearance after
   show/hide) found and fixed via live self-testing — see "Sub-phase 4 follow-up" below. A Refresh
   button was also added to the inspector window. Sub-phase 5 (broader DevTools property/action
-  set) not started — deferred as lower priority per the plan. Full Pre-Build Decomposition
-  confirmed with the user before each sub-phase's implementation began, per this project's
-  standing workflow.
+  set — arbitrary attribute read/write) is now **complete for attribute read/write**, verified
+  end-to-end against a live Edge instance. Sub-phase 6 (DevTools Relaunch Assist, item 6 below) is
+  ✅ COMPLETE, including its auto-handoff follow-up (re-finding the same element in the newly
+  launched window) — the UIA-only fallback path was manually confirmed working by the user. Full
+  Pre-Build Decomposition confirmed with the user before each sub-phase's implementation began,
+  per this project's standing workflow. Two additional pre-existing "View Element Tree" picker
+  bugs (unrelated to CDP itself, but blocking all live sub-phase testing) were found and fixed
+  this session — see "Sub-phase 5" below. Dispatching real DOM events and full computed CSS remain
+  out of scope for now (lower priority, not started).
+
 - **Sub-phase 1 — CDP bridge proof of concept:** Hand-rolled WebSocket + JSON-RPC client
   (`WindowWorks.App/Cdp/CdpClient.cs`, `CdpTarget.cs`) chosen over a NuGet CDP library, since the
   project deliberately keeps external dependencies minimal (only one existing NuGet package,
@@ -253,6 +260,41 @@
     the overlap-check fix already closes the practical safety gap since a stale rect will now
     simply fail the overlap check rather than silently accepting a wrong element; deferred as a
     lower-priority follow-up.
+- **Sub-phase 5 — arbitrary attribute read/write (attr.* rows):** `CdpPropertyReader` now enumerates
+  and displays arbitrary DOM element attributes (rendered as `attr.<name>` rows, e.g. `attr.href`,
+  `attr.class`, `attr.data-*`) alongside the existing fixed style/class/id/innerText rows.
+  `CdpPropertyWriter.WriteAttributeAsync` makes these editable via `DOM.setAttributeValue`, wired
+  into `PropertyInspectorController` the same way as the sub-phase 4 style writes (full re-fetch
+  sync rule applies).
+  - Before this session's fixes, live end-to-end testing of sub-phase 5 was blocked by two
+    pre-existing bugs in the "View Element Tree" picker window (`PickerElementTreeWindow.xaml.cs`,
+    `WindowPickerSession.cs`), unrelated to CDP:
+    - **Select-button selection-loss bug:** `TreeView.SelectedItem` could spuriously read back
+      `null` inside the Select button's own click handler even though the row had visibly become
+      selected moments earlier (reproduced with both real mouse clicks and automated UIA-invoke
+      clicks). Fixed by tracking the last-known-non-null selected node in a field
+      (`_lastKnownSelectedNode`), used as a fallback in `OnSelectClick` when `Tree.SelectedItem` is
+      null; reset on `SetRoots` for a fresh tree.
+    - **DOM-tree-to-Property-Inspector wiring gap:** `WindowPickerSession.OnElementTreeNodeConfirmed`'s
+      `PropertyInspector`-mode branch only handled the native-window element tree flow (checked
+      `_elementTreeNativeTopLevelEntry`), silently doing nothing for the browser DOM element tree
+      flow (which sets `_lastHoveredBrowserTopLevelEntry` instead) — confirming any DOM element via
+      "View Element Tree" while inspecting never opened the Property Inspector. Fixed by using
+      `_elementTreeNativeTopLevelEntry ?? _lastHoveredBrowserTopLevelEntry` as the top-level entry
+      source.
+  - With both picker fixes in place, a genuine CDP protocol bug was found and fixed in the write
+    path itself: `CdpPropertyWriter.WriteAttributeAsync` was passing the resolved `backendNodeId`
+    directly as `DOM.setAttributeValue`'s `nodeId` parameter, which CDP rejects
+    (`-32602 Invalid parameters ... params.nodeId ... mandatory field missing`) since
+    `setAttributeValue` requires a CDP frontend-tracked `nodeId`, not a `backendNodeId`. Fixed by
+    calling `DOM.pushNodesByBackendIdsToFrontend` first to obtain a real `nodeId` from the
+    `backendNodeId`, then passing that to `DOM.setAttributeValue`. (`WriteStyleAsync` was
+    unaffected since it uses `DOM.resolveNode` → `objectId` → `Runtime.callFunctionOn` instead.)
+  - All three fixes verified end-to-end via live self-testing (AgentDebugToolkit driving a real
+    Edge instance, `--remote-debugging-port=9222`): the Select button now reliably confirms tree
+    picks, DOM element tree picks now correctly open the Property Inspector, and editing
+    `attr.href` via the grid produced the status message "attribute 'href' updated through
+    DevTools (CDP). Live properties were refreshed."
 - **Refresh button:** a manual Refresh button (`AutomationId=RefreshButton`, mirroring
   `PickerElementTreeWindow`'s existing Refresh button styling/icon) was added to the Property
   Inspector window's title bar, since the UIA-reappearance fix above is a heuristic
@@ -522,6 +564,44 @@ user still required before implementation starts, per this project's standing wo
    `Input.dispatchMouseEvent`/`Runtime.callFunctionOn`, and reading full computed CSS styles. Only
    pursue after 1-4 are solid and manually confirmed — do not front-load this before the core
    hide/show capability is proven end-to-end.
+6. **DevTools Relaunch Assist — COMPLETE.** When a picked browser wasn't launched with
+   `--remote-debugging-port` (so no live CDP connection is possible), the Property Inspector's
+   DevTools-unavailable bar offers an "Open a DevTools-enabled copy of this page" button
+   (`RelaunchDevToolsButton`/`PropertyInspectorController.BeginRelaunchDevTools`). Design settled
+   through live iteration:
+   - **Does not close or touch the user's original browser window/process.** An earlier
+     close-then-relaunch-same-profile design was abandoned after live testing showed Chromium
+     browsers (confirmed with Brave) keep a background process alive after all windows close,
+     silently routing the relaunch through that background instance via the profile's
+     single-instance lock and discarding the new `--remote-debugging-port` flag.
+   - Instead launches a **second, independent** browser process against a distinct temporary
+     `--user-data-dir` (bypasses the single-instance lock entirely), passing the current tab's URL
+     (read via a UIA `Edit`/`ValuePattern` heuristic, `CdpBrowserRelauncher.TryReadCurrentUrl`) and
+     `--remote-debugging-port=9222`. Before closing the stale inspector, it bounded-polls the
+     ownership-aware CDP endpoint probe so a port conflict/unavailable endpoint leaves the current
+     inspector open. Trade-off (accepted, not fixed): the new instance has its own
+     fresh profile, so sites requiring sign-in (e.g. observed live with YouTube) prompt again.
+   - The new window's `--window-position`/`--window-size` are set to match the original window's
+     on-screen rect (`CdpBrowserRelauncher.TryBuildWindowGeometryArguments`), read via a
+     DPI-aware `GetWindowRect` (thread switched to `PER_MONITOR_AWARE_V2` for the call, matching
+     the `CdpBridgePoc` calibration pattern) and then **converted from physical pixels to logical
+     (DIP) pixels** by dividing by the window's own DPI scale factor
+     (`GetDpiForWindow(hwnd) / 96.0`) before being passed on the command line — confirmed live that
+     Chromium's `--window-size`/`--window-position` flags expect logical pixels and re-scale them
+     itself, so passing raw physical-pixel values produced a visibly oversized window on a
+     150%-scaled monitor until this conversion was added.
+   - On successful launch, the stale inspector closes. WindowWorks prefers a bounded
+     high-confidence DOM-fingerprint handoff (one exact tag/attribute match, then a CDP-box-to-UIA
+     verification); new-process backend node IDs are never reused. If the original browser had no
+     CDP endpoint/fingerprint, it instead permits one strictly unique UIA-subtree match using every
+     non-empty UIA identity field and normalized Document-relative geometry. Missing, ambiguous, or
+     mismatched identity safely opens the regular picker once instead. **Live handoff validation
+     confirmed by the user**: the UIA-only fallback path (no prior CDP fingerprint — the primary
+     real-world case, since that's exactly why the relaunch was needed) successfully re-opens the
+     inspector directly on the same element in the newly launched window. The identity-capture
+     step and the UIA-only subtree search are both bounded/off the WPF UI thread
+     (`CdpBrowserRelaunchHandoff.TryCaptureIdentityAsync`, `RunBoundedUiaSearchAsync`) so an
+     unresponsive UIA provider cannot freeze the inspector or defeat the picker fallback.
 
 **Exit criteria for Phase E overall:** pick a real DOM element in a Chromium-family browser
 launched with remote debugging enabled, see both a "UIA Properties" and a "DevTools Properties"

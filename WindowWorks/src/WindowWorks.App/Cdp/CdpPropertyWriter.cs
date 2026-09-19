@@ -58,6 +58,53 @@ namespace WindowWorks.App.Cdp
             }
         }
 
+        /// <summary>
+        /// Sets an arbitrary HTML attribute's value via <c>DOM.setAttributeValue</c> (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 5). Unlike
+        /// <see cref="WriteStyleAsync"/>, this uses a purpose-built CDP DOM command rather than
+        /// executing JS, since setting a plain attribute value doesn't need the JS-object
+        /// resolution/"this.style" indirection a CSS property write does. Only edits an attribute
+        /// that already exists on the element — adding a brand-new attribute name is out of scope
+        /// for this pass (per explicit user decision) but would use the same command.
+        /// </summary>
+        public static async Task<bool> WriteAttributeAsync(CdpClient client, int backendNodeId, string attributeName, string value)
+        {
+            try
+            {
+                // DOM.setAttributeValue requires a "nodeId" (frontend-side, pushed-node
+                // identifier), not the "backendNodeId" this class otherwise works with
+                // everywhere else -- confirmed live via a real CDP protocol error ("Failed to
+                // deserialize params.nodeId - BINDINGS: mandatory field missing") when
+                // backendNodeId was passed directly as nodeId. DOM.pushNodesByBackendIdsToFrontend
+                // converts a batch of backendNodeIds into frontend nodeIds (pushing the node into
+                // CDP's frontend-tracked set if it wasn't already), returning them in the same
+                // order as the input array.
+                var pushResult = await client
+                    .SendCommandAsync("DOM.pushNodesByBackendIdsToFrontend", new { backendNodeIds = new[] { backendNodeId } })
+                    .ConfigureAwait(false);
+                int? nodeId = pushResult?["nodeIds"]?[0]?.GetValue<int>();
+                if (nodeId is null)
+                {
+                    return false;
+                }
+
+                var result = await client
+                    .SendCommandAsync("DOM.setAttributeValue", new { nodeId = nodeId.Value, name = attributeName, value })
+                    .ConfigureAwait(false);
+
+                // DOM.setAttributeValue returns an empty success object with no result payload to
+                // check; a protocol-level failure (e.g. invalid attribute name, node not an
+                // Element) throws as an exception from SendCommandAsync rather than returning a
+                // normal response with an error field, so reaching this point means it succeeded.
+                _ = result;
+                return true;
+            }
+            catch (Exception ex) when (IsExpectedCdpFailure(ex))
+            {
+                return false;
+            }
+        }
+
         private static bool IsExpectedCdpFailure(Exception ex) =>
             ex is InvalidOperationException or FormatException or TimeoutException
                 or TaskCanceledException or OperationCanceledException or System.Net.WebSockets.WebSocketException;

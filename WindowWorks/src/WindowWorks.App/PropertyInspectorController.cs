@@ -143,10 +143,10 @@ namespace WindowWorks.App
                 return;
             }
 
-            var mergedProperties = await TryAppendDevToolsPropertiesAsync(selection, result.Properties).ConfigureAwait(false);
+            var (mergedProperties, devToolsUnavailable) = await TryAppendDevToolsPropertiesAsync(selection, result.Properties).ConfigureAwait(false);
             var finalResult = new PropertyReadResult(mergedProperties, result.IdentitySnapshot, result.SelectedElementRuntimeId);
 
-            PostIfCurrent(generation, () => ShowInspectorWindow(selection, generation, finalResult));
+            PostIfCurrent(generation, () => ShowInspectorWindow(selection, generation, finalResult, devToolsUnavailable));
         }
 
         /// <summary>
@@ -155,15 +155,19 @@ namespace WindowWorks.App
         /// Entirely additive and best-effort: only runs for Chromium-family top-level windows, and
         /// any failure (no CDP endpoint, no correlation, timeout) simply returns the original UIA
         /// properties unchanged - the DevTools section is silently absent, never an error, per the
-        /// plan's explicit requirement.
+        /// plan's explicit requirement. The returned <c>DevToolsUnavailable</c> flag is <c>true</c>
+        /// only when the selection IS a Chromium-family window but no live DevTools endpoint could
+        /// be found (sub-phase 6: this is what triggers the "Relaunch with DevTools" bar) — it is
+        /// <c>false</c> both when DevTools is present and when the browser isn't Chromium-family at
+        /// all (nothing useful to relaunch in that case).
         /// </summary>
-        private async Task<IReadOnlyList<PropertyInspectorProperty>> TryAppendDevToolsPropertiesAsync(
+        private async Task<(IReadOnlyList<PropertyInspectorProperty> Properties, bool DevToolsUnavailable)> TryAppendDevToolsPropertiesAsync(
             PropertyInspectorSelection selection,
             IReadOnlyList<PropertyInspectorProperty> uiaProperties)
         {
             if (!BrowserClassifier.IsChromiumFamily(selection.RootWindowEntry.ClassName))
             {
-                return uiaProperties;
+                return (uiaProperties, false);
             }
 
             Cdp.CdpNodeProperties? devToolsProperties;
@@ -175,14 +179,14 @@ namespace WindowWorks.App
                 if (!ReferenceEquals(completed, attemptTask))
                 {
                     ObserveFault(attemptTask);
-                    return uiaProperties;
+                    return (uiaProperties, true);
                 }
 
                 devToolsProperties = await attemptTask.ConfigureAwait(false);
             }
             catch
             {
-                return uiaProperties;
+                return (uiaProperties, true);
             }
             finally
             {
@@ -191,17 +195,17 @@ namespace WindowWorks.App
 
             if (devToolsProperties is null)
             {
-                return uiaProperties;
+                return (uiaProperties, true);
             }
 
-            return AppendDevToolsPropertyRows(uiaProperties, devToolsProperties);
+            return (AppendDevToolsPropertyRows(uiaProperties, devToolsProperties), false);
         }
 
         private static List<PropertyInspectorProperty> AppendDevToolsPropertyRows(
             IReadOnlyList<PropertyInspectorProperty> uiaProperties,
             Cdp.CdpNodeProperties devToolsProperties)
         {
-            return new List<PropertyInspectorProperty>(uiaProperties)
+            var properties = new List<PropertyInspectorProperty>(uiaProperties)
             {
                 new(
                     "style.display",
@@ -216,14 +220,6 @@ namespace WindowWorks.App
                     canEdit: true,
                     source: PropertyInspectorPropertySource.DevTools),
                 new(
-                    "class",
-                    devToolsProperties.ClassAttribute,
-                    source: PropertyInspectorPropertySource.DevTools),
-                new(
-                    "id",
-                    devToolsProperties.IdAttribute,
-                    source: PropertyInspectorPropertySource.DevTools),
-                new(
                     "innerText",
                     devToolsProperties.InnerText,
                     source: PropertyInspectorPropertySource.DevTools),
@@ -234,18 +230,36 @@ namespace WindowWorks.App
                         : null,
                     source: PropertyInspectorPropertySource.DevTools)
             };
+
+            // Every HTML attribute is shown as its own editable row (docs/
+            // PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 5), named "attr.<name>" so
+            // TryWriteProperty can route a commit back to the correct raw attribute name. This
+            // includes class/id alongside every other attribute rather than special-casing them.
+            foreach (var attribute in devToolsProperties.Attributes)
+            {
+                properties.Add(new PropertyInspectorProperty(
+                    $"attr.{attribute.Name}",
+                    attribute.Value,
+                    editorKind: PropertyInspectorEditorKind.Text,
+                    canEdit: true,
+                    source: PropertyInspectorPropertySource.DevTools));
+            }
+
+            return properties;
         }
 
         private void ShowInspectorWindow(
             PropertyInspectorSelection selection,
             long selectionGeneration,
-            PropertyReadResult result)
+            PropertyReadResult result,
+            bool devToolsUnavailable)
         {
             long viewGeneration = Interlocked.Increment(ref _viewGeneration);
             var window = new PropertyInspectorWindow(
                 result.IdentitySnapshot,
                 result.Properties!,
                 result.SelectedElementRuntimeId);
+            window.SetDevToolsUnavailable(devToolsUnavailable);
             window.TextCommitRequested += (property, value) => BeginWrite(selection, selectionGeneration, viewGeneration, window, property, value);
             window.LegacyTextCommitRequested += (property, value) => BeginWrite(selection, selectionGeneration, viewGeneration, window, property, value);
             window.ToggleCommitRequested += (property, desired) => BeginWrite(selection, selectionGeneration, viewGeneration, window, property, desired);
@@ -255,6 +269,7 @@ namespace WindowWorks.App
             window.InvokeCommitRequested += property => BeginWrite(selection, selectionGeneration, viewGeneration, window, property, null);
             window.TransformCommitRequested += (property, rect) => BeginWrite(selection, selectionGeneration, viewGeneration, window, property, rect);
             window.RefreshRequested += () => BeginRefresh(selection, selectionGeneration, viewGeneration, window);
+            window.RelaunchDevToolsRequested += () => BeginRelaunchDevTools(selection, selectionGeneration, viewGeneration, window);
             window.Closed += (_, _) =>
             {
                 if (Volatile.Read(ref _viewGeneration) == viewGeneration)
@@ -362,6 +377,7 @@ namespace WindowWorks.App
             PostIfCurrent(selectionGeneration, viewGeneration, () =>
             {
                 window.UpdateProperties(result.Properties);
+                window.SetDevToolsUnavailable(result.DevToolsUnavailable);
                 window.ShowOperationSuccess(result.Message);
             });
         }
@@ -427,7 +443,7 @@ namespace WindowWorks.App
                             // refresh also picks up a DevTools section that appears/disappears/
                             // changes for reasons outside this app's own writes (e.g. edited
                             // directly in browser DevTools, or by page script).
-                            var mergedProperties = TryAppendDevToolsPropertiesAsync(selection, readResult.Properties)
+                            var (mergedProperties, devToolsUnavailable) = TryAppendDevToolsPropertiesAsync(selection, readResult.Properties)
                                 .GetAwaiter()
                                 .GetResult();
 
@@ -436,7 +452,7 @@ namespace WindowWorks.App
                                 return PropertyWriteResult.Failure(TargetChangedMessage);
                             }
 
-                            return PropertyWriteResult.Success("Properties refreshed.", mergedProperties);
+                            return PropertyWriteResult.Success("Properties refreshed.", mergedProperties, devToolsUnavailable);
                         }
                         finally
                         {
@@ -485,8 +501,151 @@ namespace WindowWorks.App
             PostIfCurrent(selectionGeneration, viewGeneration, () =>
             {
                 window.UpdateProperties(result.Properties);
+                window.SetDevToolsUnavailable(result.DevToolsUnavailable);
                 window.ShowOperationSuccess(result.Message);
             });
+        }
+
+        /// <summary>
+        /// Handles the "Open a DevTools-enabled copy of this page" button (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 6). The window has already
+        /// shown its own confirmation popup and only raises this event after the user confirms, so
+        /// no further confirmation happens here. This launches a brand-new, independent browser
+        /// instance (separate temporary profile) at the same URL rather than closing/relaunching
+        /// the user's existing window. After a successful launch it closes the stale inspector,
+        /// then strictly attempts to reacquire the matching DOM/UIA element in the new process;
+        /// every unavailable or ambiguous match falls back to the normal picker. Runs on the
+        /// single-in-flight-operation gate, including the bounded readiness poll.
+        /// </summary>
+        private void BeginRelaunchDevTools(
+            PropertyInspectorSelection selection,
+            long selectionGeneration,
+            long viewGeneration,
+            PropertyInspectorWindow window)
+        {
+            if (!IsCurrent(selectionGeneration, viewGeneration))
+            {
+                window.ShowOperationFailure(TargetChangedMessage);
+                return;
+            }
+
+            _ = RelaunchDevToolsAsync(selection, selectionGeneration, viewGeneration, window);
+        }
+
+        private async Task RelaunchDevToolsAsync(
+            PropertyInspectorSelection selection,
+            long selectionGeneration,
+            long viewGeneration,
+            PropertyInspectorWindow window)
+        {
+            if (Interlocked.CompareExchange(ref _uiaOperationInProgress, 1, 0) != 0)
+            {
+                PostIfCurrent(selectionGeneration, viewGeneration, () => window.ShowOperationFailure(
+                    "Another UI Automation operation is still waiting for a target to respond. Try again after it finishes."));
+                return;
+            }
+
+            // This accesses the current UIA element before launch. The fingerprint is only present
+            // when a prior high-confidence CDP correlation captured one; backend node ids are not
+            // reused because the fresh process has a new DOM. Run this off the UI thread with a
+            // bounded timeout: it's a synchronous cross-process UIA call that could otherwise
+            // freeze the WPF UI thread if the original element's provider is unresponsive.
+            var relaunchIdentity = await Cdp.CdpBrowserRelaunchHandoff.TryCaptureIdentityAsync(selection).ConfigureAwait(false);
+            IntPtr browserHwnd = selection.RootWindowEntry.Hwnd;
+            Task<Cdp.CdpBrowserRelauncher.RelaunchResult> relaunchTask;
+            try
+            {
+                relaunchTask = Cdp.CdpBrowserRelauncher.RelaunchWithDevToolsAsync(browserHwnd);
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _uiaOperationInProgress, 0);
+                PostIfCurrent(selectionGeneration, viewGeneration, () => window.ShowOperationFailure(
+                    "Opening a DevTools-enabled copy could not be started."));
+                return;
+            }
+
+            bool releasedGateForHandoff = false;
+            try
+            {
+                var result = await relaunchTask.ConfigureAwait(false);
+                if (!result.Succeeded)
+                {
+                    PostIfCurrent(selectionGeneration, viewGeneration, () => window.ShowOperationFailure(result.Message));
+                    return;
+                }
+
+                bool closeSucceeded;
+                try
+                {
+                    closeSucceeded = await _dispatcher.InvokeAsync(() =>
+                    {
+                        if (!IsCurrent(selectionGeneration, viewGeneration))
+                        {
+                            return false;
+                        }
+
+                        window.Close();
+                        return true;
+                    });
+                }
+                catch (InvalidOperationException)
+                {
+                    // The dispatcher is shutting down (app closing) while this relaunch was still
+                    // in flight; nothing left to post to, and the finally block still releases the
+                    // gate below.
+                    return;
+                }
+                if (!closeSucceeded)
+                {
+                    return;
+                }
+
+                // Closing increments the old view generation. Establish a distinct generation for
+                // the handoff so its result is never discarded merely because the stale view closed.
+                long handoffGeneration = Interlocked.Increment(ref _selectionGeneration);
+                PropertyInspectorSelection? relaunchedSelection = relaunchIdentity is not null && result.NewProcessId is int newProcessId
+                    ? await Cdp.CdpBrowserRelaunchHandoff.TryFindSelectionAsync(newProcessId, relaunchIdentity).ConfigureAwait(false)
+                    : null;
+
+                try
+                {
+                    await _dispatcher.InvokeAsync(() =>
+                    {
+                        if (Volatile.Read(ref _disposed) != 0
+                            || Volatile.Read(ref _selectionGeneration) != handoffGeneration)
+                        {
+                            return;
+                        }
+
+                        // BeginInspection/InvokePicker own their subsequent work and need the request
+                        // gate available before they start.
+                        Interlocked.Exchange(ref _uiaOperationInProgress, 0);
+                        releasedGateForHandoff = true;
+
+                        if (relaunchedSelection is not null)
+                        {
+                            BeginInspection(relaunchedSelection);
+                        }
+                        else
+                        {
+                            InvokePicker();
+                        }
+                    });
+                }
+                catch (InvalidOperationException)
+                {
+                    // Dispatcher shut down before the handoff result could be posted; the finally
+                    // block below still releases the gate exactly once.
+                }
+            }
+            finally
+            {
+                if (!releasedGateForHandoff)
+                {
+                    Interlocked.Exchange(ref _uiaOperationInProgress, 0);
+                }
+            }
         }
 
         private static PropertyReadResult TryReadProperties(PropertyInspectorSelection selection)
@@ -497,7 +656,6 @@ namespace WindowWorks.App
                 {
                     return new PropertyReadResult(null, null, null);
                 }
-
                 var element = selection.SelectedElement;
                 if (!string.Equals(FormatRuntimeId(element.GetRuntimeId()), selection.SelectedElementRuntimeId, StringComparison.Ordinal))
                 {
@@ -543,6 +701,13 @@ namespace WindowWorks.App
         {
             if (property.Source == PropertyInspectorPropertySource.DevTools)
             {
+                if (property.Name.StartsWith("attr.", StringComparison.Ordinal))
+                {
+                    string attributeName = property.Name["attr.".Length..];
+                    return TryWriteDevToolsAttribute(
+                        selection, selectionGeneration, viewGeneration, attributeName, requestedValue as string ?? string.Empty);
+                }
+
                 return property.Name switch
                 {
                     "style.display" => TryWriteDevToolsStyle(
@@ -1104,6 +1269,56 @@ namespace WindowWorks.App
             string cssProperty,
             string value)
         {
+            return RunDevToolsWrite(
+                selection,
+                selectionGeneration,
+                viewGeneration,
+                () => Cdp.CdpBridgeAttempt.TryWriteStyleAsync(
+                    selection.SelectedElement, selection.RootWindowEntry.Hwnd, selection.CdpCache, cssProperty, value),
+                successDescription: $"style.{cssProperty}");
+        }
+
+        /// <summary>
+        /// Writes an arbitrary HTML attribute value via CDP (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 5), reusing the exact same
+        /// re-correlation/cache-fallback/identity-re-verification/full-re-fetch machinery as
+        /// <see cref="TryWriteDevToolsStyle"/> — only the underlying CDP command differs
+        /// (<see cref="Cdp.CdpPropertyWriter.WriteAttributeAsync"/> via
+        /// <see cref="Cdp.CdpBridgeAttempt.TryWriteAttributeAsync"/>). Only edits an attribute
+        /// that already exists; adding a brand-new attribute name is out of scope for this pass.
+        /// </summary>
+        private PropertyWriteResult TryWriteDevToolsAttribute(
+            PropertyInspectorSelection selection,
+            long selectionGeneration,
+            long viewGeneration,
+            string attributeName,
+            string value)
+        {
+            return RunDevToolsWrite(
+                selection,
+                selectionGeneration,
+                viewGeneration,
+                () => Cdp.CdpBridgeAttempt.TryWriteAttributeAsync(
+                    selection.SelectedElement, selection.RootWindowEntry.Hwnd, selection.CdpCache, attributeName, value),
+                successDescription: $"attribute '{attributeName}'");
+        }
+
+        /// <summary>
+        /// Shared orchestration for every DevTools (CDP) property writer: verifies the selection
+        /// is still live, runs <paramref name="startWrite"/> under <see cref="_devToolsOperationGate"/>
+        /// with a <see cref="DevToolsOperationTimeout"/> race, then applies the full
+        /// UIA+DevTools re-fetch sync rule (including the rebind-and-retry recovery for a
+        /// hide-then-show round trip) before reporting success/failure back to the caller.
+        /// <paramref name="successDescription"/> is a short human-readable label (e.g.
+        /// "style.display" or "attribute 'href'") used only in the resulting status message.
+        /// </summary>
+        private PropertyWriteResult RunDevToolsWrite(
+            PropertyInspectorSelection selection,
+            long selectionGeneration,
+            long viewGeneration,
+            Func<Task<(Cdp.CdpNodeProperties? Properties, bool WriteSucceeded)>> startWrite,
+            string successDescription)
+        {
             try
             {
                 if (!CanWriteCurrentSelection(selection, selectionGeneration, viewGeneration))
@@ -1116,8 +1331,7 @@ namespace WindowWorks.App
                     return PropertyWriteResult.Failure("DevTools writes are only supported for Chromium-family browsers.");
                 }
 
-                var writeTask = Cdp.CdpBridgeAttempt.TryWriteStyleAsync(
-                    selection.SelectedElement, selection.RootWindowEntry.Hwnd, selection.CdpCache, cssProperty, value);
+                var writeTask = startWrite();
                 Task<(Cdp.CdpNodeProperties? Properties, bool WriteSucceeded)> completedWriteTask;
                 _devToolsOperationGate.Wait();
                 try
@@ -1181,7 +1395,7 @@ namespace WindowWorks.App
                     var devToolsOnlyProperties = AppendDevToolsPropertyRows(
                         Array.Empty<PropertyInspectorProperty>(), properties);
                     return PropertyWriteResult.Success(
-                        $"style.{cssProperty} updated through DevTools (CDP). The element is no longer exposed to UI " +
+                        $"{successDescription} updated through DevTools (CDP). The element is no longer exposed to UI " +
                         "Automation as a result (expected when hiding an element) — only DevTools properties are shown.",
                         devToolsOnlyProperties);
                 }
@@ -1189,7 +1403,7 @@ namespace WindowWorks.App
                 var mergedProperties = AppendDevToolsPropertyRows(uiaResult.Properties, properties);
 
                 return PropertyWriteResult.Success(
-                    $"style.{cssProperty} updated through DevTools (CDP). Live properties were refreshed.", mergedProperties);
+                    $"{successDescription} updated through DevTools (CDP). Live properties were refreshed.", mergedProperties);
             }
             catch (Exception ex)
             {
@@ -1220,7 +1434,7 @@ namespace WindowWorks.App
             // "DevTools Properties" section (if previously shown) doesn't silently disappear.
             // This runs on a dedicated LongRunning background thread (see WriteAndRefreshAsync),
             // never the UI thread, so a blocking wait here is safe.
-            var mergedProperties = TryAppendDevToolsPropertiesAsync(selection, readResult.Properties)
+            var (mergedProperties, devToolsUnavailable) = TryAppendDevToolsPropertiesAsync(selection, readResult.Properties)
                 .GetAwaiter()
                 .GetResult();
 
@@ -1233,7 +1447,7 @@ namespace WindowWorks.App
                 return PropertyWriteResult.Failure(TargetChangedMessage);
             }
 
-            return PropertyWriteResult.Success(successMessage, mergedProperties);
+            return PropertyWriteResult.Success(successMessage, mergedProperties, devToolsUnavailable);
         }
 
         private bool CanWriteCurrentSelection(
@@ -1705,21 +1919,32 @@ namespace WindowWorks.App
 
         private sealed class PropertyWriteResult
         {
-            private PropertyWriteResult(bool succeeded, string message, IReadOnlyList<PropertyInspectorProperty>? properties)
+            private PropertyWriteResult(bool succeeded, string message, IReadOnlyList<PropertyInspectorProperty>? properties, bool devToolsUnavailable)
             {
                 Succeeded = succeeded;
                 Message = message;
                 Properties = properties;
+                DevToolsUnavailable = devToolsUnavailable;
             }
 
             public bool Succeeded { get; }
             public string Message { get; }
             public IReadOnlyList<PropertyInspectorProperty>? Properties { get; }
 
-            public static PropertyWriteResult Success(string message, IReadOnlyList<PropertyInspectorProperty> properties) =>
-                new(true, message, properties);
+            /// <summary>
+            /// True if the current selection is a Chromium-family browser but no live DevTools
+            /// endpoint was found on this attempt (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md §4
+            /// Phase E, sub-phase 6) — drives whether the window's "Relaunch with DevTools" bar
+            /// should be shown. Always <c>false</c> for plain UIA writes/refreshes that never
+            /// attempted a DevTools append (the bar's visibility is simply left unchanged in that
+            /// case rather than incorrectly toggled off).
+            /// </summary>
+            public bool DevToolsUnavailable { get; }
 
-            public static PropertyWriteResult Failure(string message) => new(false, message, null);
+            public static PropertyWriteResult Success(string message, IReadOnlyList<PropertyInspectorProperty> properties, bool devToolsUnavailable = false) =>
+                new(true, message, properties, devToolsUnavailable);
+
+            public static PropertyWriteResult Failure(string message) => new(false, message, null, false);
         }
 
         private static class NativeMethods

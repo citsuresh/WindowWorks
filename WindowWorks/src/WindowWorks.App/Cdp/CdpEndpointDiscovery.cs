@@ -215,6 +215,43 @@ namespace WindowWorks.App.Cdp
         [DllImport("kernel32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CloseHandle(IntPtr hObject);
+
+        /// <summary>
+        /// Resolves the full executable path of a running process (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 6 — needed to relaunch the
+        /// same browser after closing it). Uses <c>QueryFullProcessImageName</c> rather than
+        /// <c>Process.MainModule.FileName</c> since the latter can throw a permission exception
+        /// for some processes; <c>PROCESS_QUERY_LIMITED_INFORMATION</c> (the same access right
+        /// already used above for parent-process walking) is sufficient for this API.
+        /// </summary>
+        public static string? TryGetProcessExecutablePath(uint processId)
+        {
+            IntPtr handle = OpenProcess(ProcessQueryLimitedInformation, false, processId);
+            if (handle == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            try
+            {
+                var buffer = new System.Text.StringBuilder(1024);
+                int size = buffer.Capacity;
+                if (!QueryFullProcessImageName(handle, 0, buffer, ref size))
+                {
+                    return null;
+                }
+
+                return buffer.ToString(0, size);
+            }
+            finally
+            {
+                CloseHandle(handle);
+            }
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool QueryFullProcessImageName(
+            IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref int lpdwSize);
     }
 }
 

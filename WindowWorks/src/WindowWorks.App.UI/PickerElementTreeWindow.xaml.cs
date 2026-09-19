@@ -59,6 +59,22 @@ namespace WindowWorks.App.UI
         private IReadOnlyList<ElementTreeNodeItem>? _currentRoots;
         private bool _hasAutoFocusedOnce;
 
+        /// <summary>
+        /// Mirrors the last node <see cref="Tree"/>'s <c>SelectedItemChanged</c> reported as a
+        /// real <see cref="ElementTreeNodeItem"/>. Observed live (both via automated UIA clicks
+        /// and genuine human mouse clicks): clicking "Select" shortly after clicking a tree row
+        /// can land with <c>Tree.SelectedItem</c> already back to <c>null</c> by the time
+        /// <see cref="OnSelectClick"/> runs, even though the row still renders as selected and
+        /// <see cref="SelectButton"/> is enabled -- i.e. WPF's <c>TreeView.SelectedItem</c>
+        /// momentarily/spuriously clears itself around that second click on this transparent/
+        /// topmost/tool window (this window class already has other documented input quirks, see
+        /// <see cref="SearchBox_PreviewKeyDown"/>'s doc comment). This field is the actual source
+        /// of truth <see cref="OnSelectClick"/> confirms against, falling back to
+        /// <c>Tree.SelectedItem</c> only if this hasn't been set yet, so Select keeps working
+        /// even when the underlying TreeView selection state glitches.
+        /// </summary>
+        private ElementTreeNodeItem? _lastKnownSelectedNode;
+
         public PickerElementTreeWindow()
         {
             InitializeComponent();
@@ -83,6 +99,7 @@ namespace WindowWorks.App.UI
         public void SetRoots(IReadOnlyList<ElementTreeNodeItem> roots)
         {
             _currentRoots = roots;
+            _lastKnownSelectedNode = null;
             Tree.ItemsSource = roots;
 
             int remainingNodeBudget = MaxEagerLoadNodes;
@@ -629,6 +646,15 @@ namespace WindowWorks.App.UI
         {
             SelectButton.IsEnabled = Tree.SelectedItem is ElementTreeNodeItem;
 
+            // Only overwrite the last-known-good selection when the TreeView reports a real
+            // node; deliberately do NOT clear it back to null when SelectedItem transiently
+            // becomes null (see _lastKnownSelectedNode's doc comment) -- Select should still be
+            // able to confirm the row the user actually clicked.
+            if (Tree.SelectedItem is ElementTreeNodeItem selectedNode)
+            {
+                _lastKnownSelectedNode = selectedNode;
+            }
+
             if (Tree.SelectedItem is ElementTreeNodeItem { HasScreenRect: true } node)
             {
                 NodeSelected?.Invoke(this, node);
@@ -649,7 +675,14 @@ namespace WindowWorks.App.UI
 
         private void OnSelectClick(object sender, RoutedEventArgs e)
         {
-            if (Tree.SelectedItem is ElementTreeNodeItem node)
+            // Prefer the live TreeView selection when available, but fall back to the last
+            // known-good selection if it has spuriously gone null (see
+            // _lastKnownSelectedNode's doc comment) -- this is the actual fix for the reported
+            // "Select does nothing" bug, confirmed via live debugging (Tree.SelectedItem null at
+            // OnSelectClick time despite the row still visually appearing selected and
+            // SelectButton.IsEnabled being true).
+            var node = Tree.SelectedItem as ElementTreeNodeItem ?? _lastKnownSelectedNode;
+            if (node is not null)
             {
                 NodeConfirmed?.Invoke(this, node);
             }

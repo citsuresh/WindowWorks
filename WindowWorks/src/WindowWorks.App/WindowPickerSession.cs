@@ -963,14 +963,25 @@ namespace WindowWorks.App
 
             if (_mode == WindowPickerMode.PropertyInspector)
             {
-                if (_elementTreeNativeTopLevelEntry is null
+                // Two element-tree flavors reach this handler in Property Inspector mode: a
+                // native-window tree (rooted via BeginNativeInspectorElementTreeBuild,
+                // _elementTreeNativeTopLevelEntry set) and a browser DOM tree (rooted via
+                // OpenElementTree's DomElementTreeBuilder.TryBuildRoot path,
+                // _lastHoveredBrowserTopLevelEntry set instead). Both cases hand off the node's
+                // own AutomationElement (node.Tag) to PropertyInspectorSelection.TryCapture --
+                // only the top-level entry used for identity capture differs. Previously only the
+                // native-tree case was handled here, so confirming a DOM element via "View Element
+                // Tree" silently fell through to the crop/reparent DomPickConfirmed path instead
+                // of opening the Property Inspector at all.
+                var topLevelEntryForCapture = _elementTreeNativeTopLevelEntry ?? _lastHoveredBrowserTopLevelEntry;
+                if (topLevelEntryForCapture is null
                     || node.Tag is not AutomationElement selectedElement)
                 {
                     return;
                 }
 
                 if (!PropertyInspectorSelection.TryCapture(
-                        _elementTreeNativeTopLevelEntry,
+                        topLevelEntryForCapture,
                         selectedElement,
                         out var selection))
                 {

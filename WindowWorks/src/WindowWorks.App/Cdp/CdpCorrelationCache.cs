@@ -24,14 +24,22 @@ namespace WindowWorks.App.Cdp
         private string? _webSocketDebuggerUrl;
         private int? _backendNodeId;
         private (int Left, int Top, int Right, int Bottom)? _lastKnownScreenRect;
+        private CdpNodeFingerprint? _fingerprint;
 
-        public void Update(string webSocketDebuggerUrl, int backendNodeId, (int Left, int Top, int Right, int Bottom) screenRect)
+        public void Update(
+            string webSocketDebuggerUrl,
+            int backendNodeId,
+            (int Left, int Top, int Right, int Bottom) screenRect,
+            CdpNodeFingerprint? fingerprint = null)
         {
             lock (_gate)
             {
                 _webSocketDebuggerUrl = webSocketDebuggerUrl;
                 _backendNodeId = backendNodeId;
                 _lastKnownScreenRect = screenRect;
+                // A new correlation supersedes the prior document generation. Clear any old
+                // fingerprint until this correlation proves a fresh high-confidence one below.
+                _fingerprint = fingerprint;
             }
         }
 
@@ -76,6 +84,26 @@ namespace WindowWorks.App.Cdp
                 }
 
                 rect = default;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Returns a process-independent DOM identity captured from a high-confidence correlation.
+        /// Unlike the cached backend node id, this can be used only as a strict matching fingerprint
+        /// after the user explicitly opens a fresh DevTools-enabled browser process.
+        /// </summary>
+        public bool TryGetFingerprint(out CdpNodeFingerprint fingerprint)
+        {
+            lock (_gate)
+            {
+                if (_fingerprint is not null)
+                {
+                    fingerprint = _fingerprint;
+                    return true;
+                }
+
+                fingerprint = null!;
                 return false;
             }
         }

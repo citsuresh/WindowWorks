@@ -379,10 +379,30 @@ namespace WindowWorks.App.UI
         /// </summary>
         public event Action? RefreshRequested;
 
+        /// <summary>
+        /// Raised when the user confirms (via the in-window warning popup) that they want to
+        /// relaunch the picked element's browser with <c>--remote-debugging-port</c> enabled
+        /// (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 6). The confirmation
+        /// itself (warning about closing all tabs/losing unsaved work) is shown by this window
+        /// before raising the event, so the controller can assume the user already agreed.
+        /// </summary>
+        public event Action? RelaunchDevToolsRequested;
+
         public void UpdateProperties(IReadOnlyList<PropertyInspectorProperty> properties)
         {
             Properties = properties ?? throw new ArgumentNullException(nameof(properties));
             ApplyGrouping();
+        }
+
+        /// <summary>
+        /// Shows or hides the "DevTools properties unavailable... Relaunch" warning bar (docs/
+        /// PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 6). Called by the controller
+        /// after every property read/refresh for a Chromium-family selection, based on whether a
+        /// live DevTools endpoint was found this time.
+        /// </summary>
+        public void SetDevToolsUnavailable(bool unavailable)
+        {
+            DevToolsUnavailableBar.Visibility = unavailable ? Visibility.Visible : Visibility.Collapsed;
         }
 
         /// <summary>
@@ -424,6 +444,32 @@ namespace WindowWorks.App.UI
         private void OnRefreshClick(object sender, RoutedEventArgs e)
         {
             RefreshRequested?.Invoke();
+        }
+
+        /// <summary>
+        /// Shows a confirmation popup (per explicit user decision: this must be a popup, not just
+        /// inline text) before raising <see cref="RelaunchDevToolsRequested"/>. This opens a
+        /// second, independent browser instance (a separate temporary profile via
+        /// <c>--user-data-dir</c>) at the same page with DevTools debugging enabled — the
+        /// original window/tab is left completely untouched, so no "unsaved work" warning is
+        /// needed here.
+        /// </summary>
+        private void OnRelaunchDevToolsClick(object sender, RoutedEventArgs e)
+        {
+            var result = System.Windows.MessageBox.Show(
+                this,
+                "This opens a new, separate browser window (a temporary profile) at the same page, " +
+                "with DevTools debugging enabled. Your current browser window/tab is not affected. " +
+                "You'll need to re-pick the element from the new window afterward. Continue?",
+                "Open DevTools-enabled copy",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                RelaunchDevToolsRequested?.Invoke();
+            }
         }
 
         private void InlineTextBox_PreviewKeyDown(object sender, KeyEventArgs e)

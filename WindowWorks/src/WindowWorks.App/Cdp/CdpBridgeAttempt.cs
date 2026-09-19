@@ -51,6 +51,30 @@ namespace WindowWorks.App.Cdp
             return (properties, writeSucceeded);
         }
 
+        /// <summary>
+        /// Same orchestration as <see cref="TryWriteStyleAsync"/>, but writes a raw HTML attribute
+        /// via <see cref="CdpPropertyWriter.WriteAttributeAsync"/> instead of a CSS style property
+        /// (docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md §4 Phase E, sub-phase 5).
+        /// </summary>
+        public static async Task<(CdpNodeProperties? Properties, bool WriteSucceeded)> TryWriteAttributeAsync(
+            AutomationElement selectedElement,
+            IntPtr browserHwnd,
+            CdpCorrelationCache cache,
+            string attributeName,
+            string value)
+        {
+            bool writeSucceeded = false;
+            var properties = await TryReadOrWriteAsync(
+                selectedElement,
+                browserHwnd,
+                cache,
+                writeStep: async (client, backendNodeId) =>
+                {
+                    writeSucceeded = await CdpPropertyWriter.WriteAttributeAsync(client, backendNodeId, attributeName, value).ConfigureAwait(false);
+                }).ConfigureAwait(false);
+            return (properties, writeSucceeded);
+        }
+
         private static async Task<CdpNodeProperties?> TryReadOrWriteAsync(
             AutomationElement selectedElement,
             IntPtr browserHwnd,
@@ -150,6 +174,14 @@ namespace WindowWorks.App.Cdp
                             }
 
                             var readBack = await CdpPropertyReader.ReadAsync(client, correlation.BackendNodeId).ConfigureAwait(false);
+                            if (readBack is not null)
+                            {
+                                cache.Update(
+                                    target.WebSocketDebuggerUrl!,
+                                    correlation.BackendNodeId,
+                                    pickedScreenRect,
+                                    CdpNodeFingerprint.TryCreate(correlation, readBack.Attributes));
+                            }
                             return readBack;
                         }
                     }
