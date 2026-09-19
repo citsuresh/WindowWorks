@@ -1,5 +1,36 @@
 # Design Decisions
 
+## 2026-09-19 — DevTools relaunch assist: fresh temp profile beats close-then-relaunch, and can't preserve sign-in while the original stays open
+
+- **Decision:** `CdpBrowserRelauncher` (Property Inspector Phase E sub-phase 6) launches a
+  **second, independent** browser process against a temp `--user-data-dir` when the user asks to
+  "open a DevTools-enabled copy of this page," rather than closing and relaunching the original
+  process against its real profile. The profile directory is a fixed, shared path
+  (`%TEMP%\WindowWorksDevToolsProfile`), not a per-launch unique one — a unique-per-launch variant
+  was tried and reverted at the user's explicit request, trading "no stale tabs from a previous
+  relaunch" for "old tabs from earlier relaunches can reappear," which was preferred over losing
+  sign-in state entirely on every single relaunch.
+- **Rationale:** Chromium-family browsers enforce a single-instance lock per `--user-data-dir` —
+  a second process pointed at a profile another process already owns doesn't start independently;
+  it silently hands off to the existing process via IPC and the new process's own command-line
+  flags (including `--remote-debugging-port`) are discarded. Since the whole point of this feature
+  is adding that flag, launching against the *same* profile as the still-open original window can
+  never work while that original stays open — confirmed live (Brave). Closing the original first
+  was rejected as too destructive to automate. A fixed shared temp profile was chosen over a
+  unique-per-launch one specifically because the user found "some stale tabs sometimes reappear"
+  more acceptable than "sign-in is lost on every relaunch" once forced to choose between the two
+  temp-profile variants (a true real-profile-preserving new window was ruled out entirely by the
+  lock above).
+- **Alternatives considered:** (1) Close-then-relaunch on the real profile — rejected, destructive
+  and still hits the same single-instance-lock problem once Chromium's background/notification
+  process keeps the profile "in use" after all windows close. (2) Unique GUID-suffixed temp
+  profile per launch — implemented, live-tested, then reverted per explicit user request (stale
+  tabs across relaunches were judged more tolerable than the alternative). (3) Copying the real
+  profile's cookies/session data into a fresh temp directory before each launch (excluding Cache)
+  to get both "no lock conflict" and "signed in" — proposed, user explicitly declined for now
+  ("we will see if I can live with it").
+
+
 ## 2026-09-12 — Native layered overlay window: two hard-won Win32/WPF gotchas
 
 - **Decision:** For the Phase 3 overlay scaffold (`ReparentHostWindow.xaml.cs`, `CreateOwnedOverlay`/`PositionOwnedOverlay`), the overlay's paint color must be set via a real `WNDCLASS.hbrBackground` brush (`CreateSolidBrush`), not via `SetLayeredWindowAttributes`'s `crKey` parameter. Its screen-space geometry (origin/size) must be computed via native `GetClientRect` + `ClientToScreen` on the host window's own HWND, not via WPF's `Window.PointToScreen`/`ActualWidth`/`ActualHeight`.

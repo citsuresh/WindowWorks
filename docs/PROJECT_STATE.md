@@ -1,70 +1,68 @@
-# Project State
+﻿# Project State
 
 > This file is overwritten, not appended, at the end of each working session.
 
 ## Current Focus
-- This session had two threads: (1) orchestrating a remote Copilot agent in a separate VS
-  window working on the **AgentDebugToolkit** repo (Phase 21: DPI-aware pointer input verbs —
-  `drag`, `move-mouse`, `get-cursor-pos`, `right-click`, `double-click`), and (2) final
-  verification + commit of the **WindowWorks** "View Element Tree" SearchBox typing-bug fix
-  that was implemented in a prior session.
-- AgentDebugToolkit thread (separate repo, not committed by me — orchestrated only):
-  - Steered the remote agent through Parts A–H of Phase 21 (DPI-awareness, SendInput migration,
-    new verbs, `--durationMs`/`--steps` params) via `ChoicePrompt`/plain-text responses,
-    independently verifying every "ready to commit" claim against `git diff`/rebuild before
-    accepting it.
-  - Found and reported (not fixed directly, per an explicit session-established constraint) a
-    `get-cursor-pos` `EntryPointNotFoundException` bug; the remote agent fixed it correctly.
-  - Approved final commit+push; independently confirmed via `git log`/`git status` that
-    `2f38beb "Add DPI-aware pointer input verbs"` landed and is fully pushed.
-  - Also asked the agent to review and commit a polling-script enhancement
-    (adaptive backoff added to `tools/Watch-CopilotChat.ps1` — `-MaxPollIntervalSeconds`,
-    `-PollBackoffMultiplier`). The agent's own Regression-Audit-style review caught three real
-    bugs across two review passes (unvalidated multiplier/max-vs-initial-interval params, a
-    timeout-overrun bug where a full sleep could exceed `-TimeoutSeconds`, a
-    backward-compat regression for existing single-param callers, and a `Ceiling()` sub-second
-    timing bug) before committing as `1bb1505 "Add adaptive Copilot chat polling backoff"`,
-    confirmed committed and pushed.
-  - Refined the `agent-orchestrator` skill itself based on live feedback during this session:
-    documented running `Watch-CopilotChat.ps1` asynchronously (`mode="async"` + `read_powershell`
-    polling) so poll progress can be relayed to the user in real time instead of only after the
-    whole script call returns/times out; added a rule to always state the sleep duration until
-    the next poll when reporting progress; added a rule to act immediately on the first
-    `state=IDLE` poll line (independently re-inspect / check `git status` right away) instead of
-    waiting for the script's own 2-consecutive-poll stability confirmation.
-- WindowWorks thread:
-  - Live-tested the already-implemented Element Tree SearchBox typing-bug fix via
-    `agentdebug-ui.exe`, in two scenarios: a normal native window (Notepad) and a browser DOM
-    tree (Brave/YouTube). Both passed — typed text lands in `SearchBox` correctly and the tree
-    filters as expected in both native and DOM modes.
-  - Found and cleaned up a stray empty `src/` folder at the repo root (two 0-byte leftover
-    files, `HotkeyManager.cs` and `PickerElementTreeWindow.xaml`) — deleted, not part of any
-    real change.
-  - Left `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` (untracked, dated Sep 16, a future-feature
-    plan unrelated to this session's work) untracked per explicit user choice — not added to
-    the commit.
-  - Committed and pushed the 7-file Element Tree SearchBox fix as
-    `e36e52c "Fix Element Tree SearchBox typing bug; verify native and browser DOM search
-    filtering"` (build verified clean before commit).
+- Property Inspector Phase E (DevTools/CDP bridge) sub-phases 5 and 6, including the DevTools
+  relaunch auto-handoff follow-up, were completed, live-tested, reviewed, and committed/pushed
+  this session as `d6c4a88` ("Property Inspector Phase E: DevTools attribute read/write +
+  relaunch assist + auto-handoff").
+- Sub-phase 5 (arbitrary DOM attribute read/write): `CdpPropertyReader` enumerates all HTML
+  attributes as `attr.*` grid rows; `CdpPropertyWriter.WriteAttributeAsync` writes via
+  `DOM.setAttributeValue`, using `DOM.pushNodesByBackendIdsToFrontend` to convert a
+  `backendNodeId` into the frontend `nodeId` that command actually requires. Wired through the
+  same full-re-fetch sync rule used by the style write path. Verified end-to-end against a live
+  Edge instance.
+- Sub-phase 6 (DevTools Relaunch Assist) + its auto-handoff follow-up: `CdpBrowserRelauncher`
+  launches a second, independent browser process with `--remote-debugging-port` (shared temp
+  profile, original window/process untouched), matching the original window's geometry with a
+  DPI-aware conversion, bounded-polling for a live DevTools endpoint before reporting success.
+  `CdpBrowserRelaunchHandoff` then automatically re-finds the same DOM element in the newly
+  launched window: a CDP-fingerprint-based match (`CdpNodeFingerprint`, when the original had a
+  live CDP correlation) or a strict, Document-anchored UIA-only fallback (the common case, since
+  lacking CDP is the whole reason for relaunching) — falling back to the normal manual picker
+  when the match is unavailable/ambiguous. Both the identity-capture step and the UIA-only search
+  run bounded and off the WPF UI thread so an unresponsive UIA provider can't freeze the
+  inspector or defeat the picker fallback. **Manually confirmed working live by the user**,
+  including the UIA-only fallback path.
+- Iterated on the relaunch's browser-profile behavior at the user's explicit direction: tried a
+  unique-per-launch temp profile to stop stale tabs reappearing, then reverted to the original
+  shared fixed temp profile because the user preferred keeping the existing (accepted) sign-in
+  tradeoff over the new-tabs annoyance. Confirmed a true "new window on the real signed-in
+  profile while the original stays open" is not achievable — Chromium's single-instance-per-
+  profile lock means a second process pointed at the real profile just hands off to the already-
+  running one and silently drops `--remote-debugging-port`.
+- An independent `code-review` sub-agent pass over the full diff (12 modified + 3 new files)
+  found one real, in-scope issue: two `_dispatcher.InvokeAsync` calls in
+  `PropertyInspectorController.RelaunchDevToolsAsync` were unguarded against
+  `InvalidOperationException` during app shutdown, unlike this file's established defensive
+  pattern elsewhere. Fixed by wrapping both calls in `try/catch`. The reviewer's other finding
+  (shared, non-unique relaunch profile directory) is the user's explicitly accepted tradeoff, not
+  actioned.
+- Fixed an unrelated stray-paste syntax error a user's IDE context had introduced into
+  `CdpPropertyWriter.WriteAttributeAsync` (literal text `want you to open in ` accidentally
+  inserted mid-statement) — removed, build confirmed green afterward.
 
 ## Open Tasks / Known Issues
-- None outstanding for the Element Tree SearchBox fix — confirmed working in both native and
-  browser scenarios this session, committed and pushed.
-- `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md` remains an untracked planning doc for a **future**
-  feature (Property Inspector — pick any UI element, view/edit its properties, Inspect.exe-style,
-  reusing the existing picker infrastructure but not the crop-and-reparent mechanics). Not
-  started this session; user asked for a prompt to kick it off in a new chat session next.
-- AgentDebugToolkit repo is fully committed/pushed as of this session's close (working tree
-  clean, `git log origin/main..HEAD` empty) — no outstanding work there.
+- None outstanding for Phase E sub-phases 5-6 — confirmed working live, reviewed, committed
+  (`d6c4a88`), and pushed to `origin/main`.
+- Explicitly deferred/out of scope (per the feature plan, lower priority, not started): real DOM
+  event dispatching (click/input/change via CDP) and full computed CSS style reads.
+- The relaunch assist's shared temp browser profile does not preserve the original window's
+  sign-in state — a known, user-accepted tradeoff (a profile-data-copy alternative was proposed
+  and explicitly declined "we will see if I can live with it").
 
 ## Recently Changed Files
-- `WindowWorks/src/WindowWorks.App.UI/ElementTreeNodeItem.cs`,
-  `PickerBoxListWindow.xaml(.cs)`, `PickerElementTreeWindow.xaml(.cs)` — SearchBox typing-bug
-  fix and search-filter wiring (native + browser DOM modes).
-- `WindowWorks/src/WindowWorks.App/DomElementTreeBuilder.cs`, `WindowPickerSession.cs` —
-  supporting changes to keep native/browser tree entry points aligned.
-- Committed together as `e36e52c`, pushed to `origin/main`.
-- (Separate repo, orchestrated not directly edited) `C:\MyFiles\Git\AgentDebugToolkit`:
-  `NativeMethods.cs`, `Program.cs`, `UiaHelper.cs`, `docs/CLI_CONTRACT.md`,
-  `docs/IMPLEMENTATION_PLAN.md`, `README.md`, `tools/Watch-CopilotChat.ps1` — committed as
-  `2f38beb` and `1bb1505`, both pushed.
+- `WindowWorks/src/WindowWorks.App/Cdp/CdpBrowserRelaunchHandoff.cs` (new),
+  `CdpBrowserRelauncher.cs` (new), `CdpNodeFingerprint.cs` (new) — relaunch assist + auto-handoff.
+- `WindowWorks/src/WindowWorks.App/Cdp/CdpPropertyReader.cs`, `CdpPropertyWriter.cs`,
+  `CdpBridgeAttempt.cs`, `CdpCorrelationCache.cs`, `CdpEndpointDiscovery.cs` — attribute
+  read/write path + fingerprint caching + endpoint readiness polling.
+- `WindowWorks/src/WindowWorks.App/PropertyInspectorController.cs` — relaunch/handoff
+  orchestration, dispatcher-guard fix.
+- `WindowWorks/src/WindowWorks.App/WindowPickerSession.cs`,
+  `WindowWorks.App.UI/PickerElementTreeWindow.xaml.cs`,
+  `WindowWorks.App.UI/PropertyInspectorWindow.xaml(.cs)` — picker bug fixes blocking live testing.
+- `docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md`, `docs/ROADMAP.md` — Phase E marked substantially
+  complete.
+- Committed together as `d6c4a88`, pushed to `origin/main`.
