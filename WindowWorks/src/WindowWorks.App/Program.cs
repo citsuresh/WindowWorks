@@ -85,7 +85,6 @@ namespace WindowWorks.App
             var persistence = new Persistence();
             var settings = persistence.LoadSettings();
             var auditLog = new AuditLog();
-            var presetManager = new PresetManager(persistence, auditLog);
             var windowManager = new WindowManager(auditLog, settings);
             var hotkeyManager = new HotkeyManager(settings);
 
@@ -103,9 +102,9 @@ namespace WindowWorks.App
             // normal restore path ran) are recovered before the user can start reparenting again.
             try { reparentController.RunCrashRecoveryPass(); } catch { }
 
-            var tray = new TrayController(hotkeyManager, windowManager, presetManager, auditLog, persistence, settings, clickThroughManager, reparentController);
+            var tray = new TrayController(hotkeyManager, windowManager, auditLog, persistence, settings, clickThroughManager, reparentController);
 
-            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, presetManager, persistence, auditLog, settings, clickThroughManager, reparentController, propertyInspectorController);
+            var context = new TrayApplicationContext(tray, hotkeyManager, windowManager, persistence, auditLog, settings, clickThroughManager, reparentController, propertyInspectorController);
             // Register UI services using a minimal local service collection (no external NuGet required)
             try
             {
@@ -141,7 +140,6 @@ namespace WindowWorks.App
         private readonly TrayController _tray;
         private readonly HotkeyManager _hotkeyManager;
         private readonly WindowManager _windowManager;
-        private readonly PresetManager _presetManager;
         private readonly Persistence _persistence;
         private readonly AuditLog _auditLog;
         private readonly Models.AppSettings _settings;
@@ -149,12 +147,11 @@ namespace WindowWorks.App
         private readonly ReparentController _reparentController;
         private readonly PropertyInspectorController? _propertyInspectorController;
 
-        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController reparentController, PropertyInspectorController? propertyInspectorController = null)
+        public TrayApplicationContext(TrayController tray, HotkeyManager hotkeyManager, WindowManager windowManager, Persistence persistence, AuditLog auditLog, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController reparentController, PropertyInspectorController? propertyInspectorController = null)
         {
             _tray = tray;
             _hotkeyManager = hotkeyManager;
             _windowManager = windowManager;
-            _presetManager = presetManager;
             _persistence = persistence;
             _auditLog = auditLog;
             _settings = settings;
@@ -178,16 +175,6 @@ namespace WindowWorks.App
             try
             {
                 // Respect configured hotkeys from settings. If they match, act accordingly.
-                if (!string.IsNullOrWhiteSpace(_settings.HotkeyCommandPalette) && HotkeyManager.ParseHotkeyString(_settings.HotkeyCommandPalette, out var cmods, out var ckey))
-                {
-                    if (e.Modifiers == cmods && e.Key == ckey)
-                    {
-                        var overlay = new UI.OnboardingOverlay();
-                        overlay.ShowOverlay();
-                        return;
-                    }
-                }
-
                 if (!string.IsNullOrWhiteSpace(_settings.HotkeyEmergencyReset) && HotkeyManager.ParseHotkeyString(_settings.HotkeyEmergencyReset, out var rmods, out var rkey))
                 {
                     if (e.Modifiers == rmods && e.Key == rkey)
@@ -301,7 +288,6 @@ namespace WindowWorks.App
                 _tray.Dispose();
                 _hotkeyManager.Dispose();
                 _windowManager.Dispose();
-                _presetManager.Dispose();
                 _persistence.Dispose();
                 _auditLog.Dispose();
                 try { _clickThroughManager.Dispose(); } catch { }

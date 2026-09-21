@@ -9,7 +9,13 @@
 - Manual commit review before any commit.
 - Build/test verification after every change.
 - Do not commit or push automatically — wait for explicit user confirmation first.
-- **Sub-agent delegation workflow** (established during the Window Reparenting Phase 2 work;
+- This project has a WinForms/WPF UI. If you need to debug it in Visual Studio, use the
+  `vs-debug` skill (also independently useful for debugging tasks not reached via UI
+  navigation). If you need to navigate through the running application to reach a
+  specific screen or feature — including as part of debugging it — use the
+  `ui-navigation-orchestrator` skill, which composes `vs-debug` and `ui-interaction`
+  for you.
+- **Sub-agent delegation workflow**
   apply to all future sub-agent-delegated implementation work in this project):
   1. For each independent task/fix, launch a fresh background `general-purpose` sub-agent with
      full context. Never reuse one agent across unrelated tasks.
@@ -51,7 +57,7 @@
       directly (e.g. a live `dotnet-dump` capture/inspection of the running process for hangs or
       hard-to-explain state bugs) before trying again.
 
-<!-- project-memory-management-graph: skill-version=11 -->
+<!-- project-memory-management-graph: skill-version=12 -->
 ## Persistent Project Memory
 
 This section is fully regenerated on every Bootstrap run.

@@ -1,14 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Text.Json;
 
 namespace WindowWorks.App
 {
     /// <summary>
-    /// Handles reading/writing presets and simple settings to %APPDATA%/WindowWorks.
-    /// Also exposes embedded defaults (seed) which are included as EmbeddedResource in the project.
+    /// Handles reading/writing simple settings to %APPDATA%/WindowWorks.
     /// </summary>
     public class Persistence : IDisposable
     {
@@ -60,40 +57,6 @@ namespace WindowWorks.App
                 System.Diagnostics.Debug.WriteLine($"[Persistence] SaveSettings failed: {ex}");
                 throw;
             }
-        }
-
-        public IEnumerable<Models.Preset>? LoadEmbeddedDefaultPresets()
-        {
-            var asm = Assembly.GetExecutingAssembly();
-            var resourceName = "SeedData.default_presets.json";
-            // Try common manifest name patterns
-            foreach (var rn in asm.GetManifestResourceNames())
-            {
-                if (rn.EndsWith("default_presets.json", StringComparison.OrdinalIgnoreCase))
-                {
-                    resourceName = rn; break;
-                }
-            }
-            using var stream = asm.GetManifestResourceStream(resourceName);
-            if (stream == null) return null;
-            using var sr = new StreamReader(stream);
-            var json = sr.ReadToEnd();
-            return JsonSerializer.Deserialize<IEnumerable<Models.Preset>>(json) ?? null;
-        }
-
-        public void SavePresets(IEnumerable<Models.Preset> presets)
-        {
-            var path = Path.Combine(_appFolder, "presets.json");
-            var json = JsonSerializer.Serialize(presets, new JsonSerializerOptions{WriteIndented=true});
-            File.WriteAllText(path, json);
-        }
-
-        public IEnumerable<Models.Preset>? LoadPresetsFromAppFolder()
-        {
-            var path = Path.Combine(_appFolder, "presets.json");
-            if (!File.Exists(path)) return null;
-            var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<IEnumerable<Models.Preset>>(json);
         }
 
         public void Dispose()

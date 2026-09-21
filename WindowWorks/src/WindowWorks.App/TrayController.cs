@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Linq;
 using System.Windows.Forms;
 
 namespace WindowWorks.App
@@ -16,7 +15,6 @@ namespace WindowWorks.App
         private readonly NotifyIcon _notifyIcon;
         private readonly HotkeyManager _hotkeyManager;
         private readonly WindowManager _windowManager;
-        private readonly PresetManager _presetManager;
         private readonly AuditLog _auditLog;
         private readonly Persistence _persistence;
         private readonly Models.AppSettings _settings;
@@ -25,11 +23,10 @@ namespace WindowWorks.App
         public event EventHandler? ExitRequested;
         public event EventHandler? InspectUiElementRequested;
 
-        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, PresetManager presetManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController? reparentController = null)
+        public TrayController(HotkeyManager hotkeyManager, WindowManager windowManager, AuditLog auditLog, Persistence persistence, Models.AppSettings settings, ClickThroughManager clickThroughManager, ReparentController? reparentController = null)
         {
             _hotkeyManager = hotkeyManager;
             _windowManager = windowManager;
-            _presetManager = presetManager;
             _auditLog = auditLog;
             _persistence = persistence;
             _settings = settings;
@@ -139,19 +136,8 @@ namespace WindowWorks.App
 
             // HUD duration was removed from tray menu per user request. Duration is configured via settings (default 1s).
 
-            var presetsMenu = new ToolStripMenuItem("Presets");
-            foreach (var p in _presetManager.LoadedPresets)
-            {
-                var item = new ToolStripMenuItem(p.Name);
-                item.Tag = p;
-                item.Click += (s, e) => ApplyPreset(item.Tag as Models.Preset);
-                presetsMenu.DropDownItems.Add(item);
-            }
-            menu.Items.Add(presetsMenu);
-            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(new ToolStripMenuItem("Inspect UI Element...", null, (s, e) => InspectUiElementRequested?.Invoke(this, EventArgs.Empty)));
             menu.Items.Add(new ToolStripMenuItem("Onboarding", null, (s, e) => ShowOnboarding()));
-            menu.Items.Add(new ToolStripMenuItem("Open presets folder", null, (s, e) => _persistence.OpenAppFolder())); // Ensure method reference remains if any items existed previously
             menu.Items.Add(new ToolStripMenuItem("Reset All", null, (s, e) =>
             {
                 try
@@ -370,28 +356,6 @@ namespace WindowWorks.App
         {
             var overlay = new WindowWorks.App.UI.OnboardingOverlay();
             overlay.ShowOverlay();
-        }
-
-        private void ApplyPreset(Models.Preset? p)
-        {
-            if (p == null) return;
-            var cursorHwnd = _windowManager.GetWindowUnderCursor();
-            IntPtr hwnd = WindowManager.Native.GetTopmostWindowUnderCursor();
-            if (hwnd == IntPtr.Zero) hwnd = cursorHwnd != IntPtr.Zero ? cursorHwnd : _windowManager.GetForegroundWindowHandle();
-            if (hwnd == IntPtr.Zero) return;
-
-            try { _windowManager.ShowHighlight(hwnd); } catch { }
-            _presetManager.ApplyPresetToWindow(p, hwnd, _windowManager);
-
-            // Show HUD confirmation and extend highlight
-            try
-            {
-                var label = _windowManager.GetWindowLabel(hwnd);
-                var msg = string.IsNullOrWhiteSpace(label) ? "Preset applied" : $"Preset applied — {label}";
-                ShowHud(msg, hwnd);
-                _windowManager.ExtendHighlight(hwnd, _settings.HighlightDurationMs);
-            }
-            catch { }
         }
 
         private void HotkeyManager_OpacityNudgeRequested(object? sender, OpacityNudgeEventArgs e)

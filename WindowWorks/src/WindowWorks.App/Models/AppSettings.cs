@@ -38,7 +38,6 @@ namespace WindowWorks.App.Models
         // public bool EnableCtrlShiftClickThrough { get; set; } = true;
 
         // Hotkey placeholders (stored but not wired here)
-        public string HotkeyCommandPalette { get; set; } = "Win+`";
         public string HotkeyEmergencyReset { get; set; } = "Ctrl+Alt+R";
 
         // Window Reparenting feature (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1).
@@ -114,7 +113,6 @@ namespace WindowWorks.App.Models
         // Which HUDs to show (bit flags stored as simple booleans for UI granularity)
         public bool ShowHudOnOpacityChange { get; set; } = true;
         public bool ShowHudOnTopmostToggle { get; set; } = true;
-        public bool ShowHudOnPresetApplied { get; set; } = true;
         // HUD toggles for click-through features
         public bool ShowHudOnClickThroughGesture { get; set; } = true;
         public bool ShowHudOnClickThroughModifier { get; set; } = true;

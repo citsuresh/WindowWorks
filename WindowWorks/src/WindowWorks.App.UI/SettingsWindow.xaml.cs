@@ -432,7 +432,6 @@ namespace WindowWorks.App.UI
                         try
                         {
                             // Ensure any bindings on the control have been pushed where applicable
-                            try { UpdateBindingSource(s, "PickerCommandPalette", System.Windows.Controls.Control.TagProperty); } catch { }
                             try { UpdateBindingSource(s, "PickerEmergencyReset", System.Windows.Controls.Control.TagProperty); } catch { }
                             try { UpdateBindingSource(s, "PickerWindowReparent", System.Windows.Controls.Control.TagProperty); } catch { }
                             var dict = sVm.ToDictionary();
@@ -442,10 +441,8 @@ namespace WindowWorks.App.UI
                     }
                     else
                     {
-                        var picker1 = s.FindName("PickerCommandPalette") as ShortcutPicker;
                         var picker2 = s.FindName("PickerEmergencyReset") as ShortcutPicker;
                         var picker3 = s.FindName("PickerWindowReparent") as ShortcutPicker;
-                        if (picker1 != null) settingsDict["HotkeyCommandPalette"] = picker1.Shortcut;
                         if (picker2 != null) settingsDict["HotkeyEmergencyReset"] = picker2.Shortcut;
                         if (picker3 != null) settingsDict["HotkeyWindowReparent"] = picker3.Shortcut;
                     }
@@ -486,7 +483,6 @@ namespace WindowWorks.App.UI
                         UpdateBindingSource(hud, "SldTransparency", System.Windows.Controls.Slider.ValueProperty);
                         UpdateBindingSource(hud, "ChkOpacityHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
                         UpdateBindingSource(hud, "ChkTopmostHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
-                        UpdateBindingSource(hud, "ChkPresetHud", System.Windows.Controls.CheckBox.IsCheckedProperty);
 
                         var dict = hv.ToDictionary();
                         foreach (var kv in dict) settingsDict[kv.Key] = kv.Value;
@@ -499,7 +495,6 @@ namespace WindowWorks.App.UI
                         var tbCorner = hud.FindName("TxtHudCorner") as System.Windows.Controls.TextBox;
                         var chkOpacity = hud.FindName("ChkOpacityHud") as System.Windows.Controls.CheckBox;
                         var chkTop = hud.FindName("ChkTopmostHud") as System.Windows.Controls.CheckBox;
-                        var chkPreset = hud.FindName("ChkPresetHud") as System.Windows.Controls.CheckBox;
                         var tbDuration = hud.FindName("TxtHudDuration") as System.Windows.Controls.TextBox;
                         if (tbBg != null)
                         {
@@ -550,7 +545,6 @@ namespace WindowWorks.App.UI
                         if (tbCorner != null && int.TryParse(tbCorner.Text, out var cr)) settingsDict["HudCornerRadius"] = cr;
                         if (chkOpacity != null) settingsDict["ShowHudOnOpacityChange"] = chkOpacity.IsChecked == true;
                         if (chkTop != null) settingsDict["ShowHudOnTopmostToggle"] = chkTop.IsChecked == true;
-                        if (chkPreset != null) settingsDict["ShowHudOnPresetApplied"] = chkPreset.IsChecked == true;
                     }
                 }
                 // Collect dictionaries from all sections (VMs preferred)
@@ -587,11 +581,9 @@ namespace WindowWorks.App.UI
                 // Apply hotkey changes immediately via host service so keyboard hotkeys re-register without restart.
                 try
                 {
-                    string? cp = null;
                     string? er = null;
                     string? wrHotkey = null;
                     string? propertyInspectorHotkey = null;
-                    if (settingsDict.TryGetValue("HotkeyCommandPalette", out var cpObj) && cpObj is string cpStr) cp = cpStr;
                     if (settingsDict.TryGetValue("HotkeyEmergencyReset", out var erObj) && erObj is string erStr) er = erStr;
                     if (settingsDict.TryGetValue("HotkeyWindowReparent", out var wrObj) && wrObj is string wrStr) wrHotkey = wrStr;
                     if (settingsDict.TryGetValue("HotkeyPropertyInspector", out var piObj) && piObj is string piStr) propertyInspectorHotkey = piStr;
@@ -600,8 +592,7 @@ namespace WindowWorks.App.UI
                         // Only apply hotkey changes if the Shortcuts section was modified to avoid re-registering unchanged hotkeys
                         if (_sections.TryGetValue("Shortcuts", out var shortcutsSection) && shortcutsSection.Dirty)
                         {
-                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(cp, er, null, null, null, wrHotkey, propertyInspectorHotkey);
-                            RestoreFailedHotkeySetting(settingsDict, "HotkeyCommandPalette", 0, res);
+                            var res = WindowWorks.App.UI.AppServices.HotkeyApplyService.ApplyHotkeys(er, null, null, null, wrHotkey, propertyInspectorHotkey);
                             RestoreFailedHotkeySetting(settingsDict, "HotkeyEmergencyReset", 1, res);
                             RestoreFailedHotkeySetting(settingsDict, "HotkeyWindowReparent", 2, res);
                             RestoreFailedHotkeySetting(settingsDict, "HotkeyPropertyInspector", 3, res);

@@ -23,24 +23,16 @@ namespace WindowWorks.App
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         }
 
-        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? commandPalette, string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost, string? windowReparent = null, string? propertyInspector = null)
+        public WindowWorks.App.UI.Services.HotkeyApplyResult ApplyHotkeys(string? emergencyReset, string? transparencyIncrease, string? transparencyDecrease, string? toggleTopmost, string? windowReparent = null, string? propertyInspector = null)
         {
             var result = new WindowWorks.App.UI.Services.HotkeyApplyResult();
             bool changed = false;
-            string previousCommandPalette = _settings.HotkeyCommandPalette ?? string.Empty;
             string previousEmergencyReset = _settings.HotkeyEmergencyReset ?? string.Empty;
             string previousWindowReparent = _settings.HotkeyWindowReparent ?? string.Empty;
             string previousPropertyInspector = _settings.HotkeyPropertyInspector ?? string.Empty;
-            bool commandPaletteChanged = false;
             bool emergencyResetChanged = false;
             bool windowReparentChanged = false;
             bool propertyInspectorChanged = false;
-            if (!string.IsNullOrWhiteSpace(commandPalette) && !string.Equals(commandPalette, _settings.HotkeyCommandPalette, StringComparison.Ordinal))
-            {
-                _settings.HotkeyCommandPalette = commandPalette;
-                changed = true;
-                commandPaletteChanged = true;
-            }
             if (!string.IsNullOrWhiteSpace(emergencyReset) && !string.Equals(emergencyReset, _settings.HotkeyEmergencyReset, StringComparison.Ordinal))
             {
                 _settings.HotkeyEmergencyReset = emergencyReset;
@@ -82,18 +74,15 @@ namespace WindowWorks.App
                 try
                 {
                     var outcomes = _hotkeyManager.ApplyHotkeySettingsWithOutcomes(_settings);
-                    ApplyOutcome(0, commandPalette, previousCommandPalette, commandPaletteChanged, outcomes, result);
                     ApplyOutcome(1, emergencyReset, previousEmergencyReset, emergencyResetChanged, outcomes, result);
                     ApplyOutcome(2, windowReparent, previousWindowReparent, windowReparentChanged, outcomes, result);
                     ApplyOutcome(3, propertyInspector, previousPropertyInspector, propertyInspectorChanged, outcomes, result);
                 }
                 catch
                 {
-                    RestoreFailedSetting(commandPaletteChanged, previousCommandPalette, value => _settings.HotkeyCommandPalette = value);
                     RestoreFailedSetting(emergencyResetChanged, previousEmergencyReset, value => _settings.HotkeyEmergencyReset = value);
                     RestoreFailedSetting(windowReparentChanged, previousWindowReparent, value => _settings.HotkeyWindowReparent = value);
                     RestoreFailedSetting(propertyInspectorChanged, previousPropertyInspector, value => _settings.HotkeyPropertyInspector = value);
-                    SetApplyFailure(result, 0, commandPaletteChanged, commandPalette);
                     SetApplyFailure(result, 1, emergencyResetChanged, emergencyReset);
                     SetApplyFailure(result, 2, windowReparentChanged, windowReparent);
                     SetApplyFailure(result, 3, propertyInspectorChanged, propertyInspector);
@@ -133,9 +122,6 @@ namespace WindowWorks.App
             {
                 switch (id)
                 {
-                    case 0:
-                        _settings.HotkeyCommandPalette = previousShortcut;
-                        break;
                     case 1:
                         _settings.HotkeyEmergencyReset = previousShortcut;
                         break;

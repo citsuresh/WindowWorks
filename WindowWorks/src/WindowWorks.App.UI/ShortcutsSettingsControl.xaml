@@ -10,12 +10,6 @@
         <GroupBox Header="Global hotkeys" Margin="0,12,0,0" ToolTip="Keyboard shortcuts active system-wide.">
             <StackPanel Margin="6">
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <TextBlock Width="180">Command palette</TextBlock>
-                    <TextBlock x:Name="LblCommandDisplay" Width="203" VerticalAlignment="Center" Text="{Binding CommandPalette, TargetNullValue=''}" />
-                    <local:ShortcutPicker x:Name="PickerCommandPalette" Width="180" Shortcut="{Binding CommandPalette, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />
-                    <Button x:Name="BtnEditCommand" Content="Edit" Width="64" Margin="8,0,0,0" Command="{Binding EditCommandPalette}" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBlock Width="180">Reset All</TextBlock>
                     <TextBlock x:Name="LblEmergencyDisplay" Width="203" VerticalAlignment="Center" Text="{Binding EmergencyReset, TargetNullValue=''}" />
                     <local:ShortcutPicker x:Name="PickerEmergencyReset" Width="180" Shortcut="{Binding EmergencyReset, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Visibility="Collapsed" />

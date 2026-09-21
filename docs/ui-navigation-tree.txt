@@ -1,0 +1,127 @@
+# WindowWorks UI Navigation Tree
+#
+# Marker legend:
+#   [ClassName]  - the page/handler class this item leads to (coarse anchor, cheap to
+#                  re-resolve via vs-debug; not exact file/line).
+#   ?            - unconfirmed: inferred from static code analysis only, not yet verified live.
+#                  Removed the first time a live visit confirms the line.
+#   *            - conditional: only shown/reachable when device/permissions/config allow it.
+#   †            - title inferred: exact display string not found in source/resources.
+#   (note)       - short free-text note for genuinely non-obvious interaction behavior.
+#   bare line    - seen but not yet drilled into; never a placeholder like "not-explored".
+#
+# This file is a lightweight, self-correcting cache (see ui-navigation-orchestrator skill),
+# not an exhaustive map. Entries below were confirmed live via ui-interaction on 2026-09-21.
+
+WindowWorks tray icon (Notification area > Show Hidden Icons, AutomationId "NotifyItemIcon", Name "WindowWorks")
+  (note: not pinned to the visible tray row by default - lives in the overflow flyout opened via
+   the taskbar's "Show Hidden Icons" button, AutomationId "SystemTrayIcon")
+  Right-click -> context menu [TrayController.BuildContextMenu]
+    Settings [SettingsWindow] - opens the WPF Settings window (confirmed)
+    (note: the "Presets" submenu and "Open presets folder" item were removed 2026-09-21 - the
+     entire Presets feature, PresetManager, Models.Preset, related Persistence methods, the HUD
+     "Preset applied" toggle, and the unused PresetsSettingsControl.xaml were deleted. Confirmed
+     live: menu is now Settings / Inspect UI Element... / Onboarding / Reset All / Reset
+     Click-Through / Reset Reparenting / Exit, with no Presets-related entries.)
+    Inspect UI Element... [PropertyInspectorController via InspectUiElementRequested event] -
+      launches window-picker flow (also reachable via hotkey Ctrl+Alt+I). Confirmed live:
+      1. A full-screen transparent overlay window opens (HwndWrapper, IsModal, covers whole
+         desktop) - this is the click-to-pick surface; no visible chrome of its own.
+      2. Simultaneously a small "Select Element" HUD window opens (top-right of primary
+         monitor, ClassName "Window", CloseButton "\uE8BB") showing a "BoxList"
+         (ItemsControl of "WindowWorks.App.UI.PickerAncestorBoxItem" entries) - one row per
+         ancestor HWND currently under the cursor (e.g. the top-level window title, then a
+         fixed "View Element Tree" row as the last entry). This list updates live as the mouse
+         moves over different windows/ancestors (not independently re-verified this session).
+      3. Clicking "View Element Tree" for a picked ancestor opens
+         [PickerElementTreeWindow] (`WindowWorks.App.UI/PickerElementTreeWindow.xaml.cs`) -
+         a modal ~510x630 window with: SearchBox (AutomationId "SearchBox"), a Tree view
+         (AutomationId "Tree", with expandable node "Expander" toggles), a "Select" button
+         (AutomationId "SelectButton" - picks the highlighted tree node as the inspection
+         target; not exercised, would proceed to the Property Inspector window per
+         docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md), a "Refresh" button (AutomationId
+         "RefreshButton"), and a "Close" button (AutomationId "CloseButton", glyph \uE8BB).
+         Closing this window also closed the underlying full-screen picker overlay together
+         (both disappeared after one CloseButton click) - not yet confirmed whether this is
+         always coupled or coincidental to this session's state.
+      (Did not click "Select" to avoid opening the full Property Inspector against a live
+       target window as part of this read-only exploration pass; the resulting
+       [PropertyInspectorWindow] is documented separately in
+       docs/PROPERTY_INSPECTOR_FEATURE_PLAN.md and docs/PROJECT_STATE.md but not yet
+       confirmed via this tree.)
+    Onboarding [confirmed live] - opens a small modal WPF dialog (ClassName "Window", no
+      AutomationId), title "Welcome to WindowWorks", one info TextBlock describing gestures
+      (Ctrl+MouseWheel = nudge opacity, Ctrl+Alt+Click = toggle topmost, Ctrl+Shift+Click = toggle
+      click-through, HUD Undo reverts last change) and a single "Close" button. No further
+      navigation from here.
+    Reset All - mutating, not exercised
+    Reset Click-Through - mutating, not exercised
+    Reset Reparenting - was disabled/greyed out at time of observation (state-dependent, likely enabled only when a reparented window exists)
+    Exit - mutating (terminates app), not exercised
+  Double-click [TrayController.NotifyIcon_DoubleClick] -> ShowSettings() (same as "Settings" menu item; not yet independently verified live)
+
+Settings window [SettingsWindow] (WPF, AutomationId root not set; ClassName "Window", Name "Settings")
+  NavList (ListBox, AutomationId "NavList") - left-hand section list, single-select
+    General [GeneralSettingsControl] - confirmed live (default-selected on open)
+      Enable Highlight (CheckBox, AutomationId "ChkEnableHighlight")
+      Enable HUD confirmations (CheckBox, AutomationId "ChkEnableConfirmations")
+    Highlight [HighlightSettingsControl] - confirmed live
+      Border color (hex) (TextBox "TxtBorderColor" + "Choose..." button "BtnChooseColor")
+      Border transparency (%) (Slider "SldBorderTransparency", value TextBlock "TxtBorderTransparencyValue")
+      Border thickness (px) (TextBox "TxtBorderThickness" +/- "BtnBorderThicknessUp"/"BtnBorderThicknessDown")
+      Corner radius (px) (TextBox "TxtCornerRadius" +/- "BtnCornerRadiusUp"/"BtnCornerRadiusDown")
+      Highlight duration (ms) (TextBox "TxtHighlightMs")
+      Highlight Preview (live preview label "HighlightPreviewLabel")
+    HUD [HudSettingsControl] - confirmed live
+      Background color (TextBox "TxtHudBackground" + "Choose..." "BtnPickColor")
+      Transparency (%) (Slider "SldTransparency", value "TxtTransparencyValue")
+      Font size (TextBox "TxtHudFontSize" +/- "BtnHudFontUp"/"BtnHudFontDown")
+      HUD duration (ms) (TextBox "TxtHudDuration")
+      Corner radius (TextBox "TxtHudCorner" +/- "BtnHudCornerUp"/"BtnHudCornerDown")
+      Show HUD for: Opacity changes ("ChkOpacityHud"), Topmost toggles ("ChkTopmostHud")
+        (note: a third "Preset applied" checkbox, "ChkPresetHud", existed here previously but was
+         removed 2026-09-21 along with the rest of the Presets feature)
+      Show HUD for Click-Through: gesture ("ChkGestureHud"), modifier held ("ChkModifierHud")
+      HUD Preview (progress bar "PreviewProgress" + label "PreviewMessage")
+    Click-Through [SettingsTabClickThrough] - confirmed live (class name only; controls not yet drilled into)
+    Window Reparenting [WindowReparentingSettingsControl] - confirmed live (class name only; controls not yet drilled into)
+    Shortcuts [ShortcutsSettingsControl] - confirmed live (class name only; controls not yet drilled into)
+  Save (Button "BtnSave") - mutating, not exercised
+  Cancel (Button "BtnCancel") - not exercised
+
+# Not yet explored at all (known to exist from tray menu / hotkeys, no live visit yet):
+#   - Window Reparenting live feature (hotkey Ctrl+Alt+P, HotkeyWindowReparent) - distinct from
+#     the "Window Reparenting" *settings* tab above, which only configures it
+#   - Emergency Reset (hotkey Ctrl+Alt+R, HotkeyEmergencyReset) - per Program.cs
+#     HotkeyManager_HotkeyPressed, shows a confirm MessageBox ("Confirm Reset All") then performs
+#     the same reset as the tray menu's "Reset All" item if confirmed - mutating, not exercised.
+
+Global hotkeys (registered via Win32 RegisterHotKey in HotkeyManager, dispatched through
+Program.cs's TrayApplicationContext.HotkeyManager_HotkeyPressed) - NOT reliably triggerable via
+this toolkit's send-keys (SendKeys.SendWait cannot synthesize the Windows/LWIN key at all, and
+RegisterHotKey-based global hotkeys generally need real OS-level key events rather than
+messages posted to one specific window). Documented here from source instead of live-confirmed:
+  (note: Win+` (HotkeyCommandPalette) was removed entirely 2026-09-21 - it was a misnamed hotkey
+   that only opened [UI.OnboardingOverlay] (same as the tray menu's "Onboarding" item), not a
+   real command palette; no replacement was added, id==0 in HotkeyManager's registration table is
+   now intentionally unused. Ids 1=EmergencyReset, 2=WindowReparent, 3=PropertyInspector below are
+   unaffected.)
+  Ctrl+Alt+P (HotkeyWindowReparent) [confirmed live] - launches the same picker pattern as
+    Ctrl+Alt+I: a full-screen transparent overlay + a "Select Element" HUD window
+    (AutomationId "BoxList" ItemsControl of "PickerAncestorBoxItem" rows). Distinguishing
+    difference from the Inspect UI Element flow: this picker's BoxList has a third,
+    reparenting-specific row "Crop a region" in addition to the ancestor-window row(s) and the
+    shared "View Element Tree" row - i.e. the picker HUD component (WindowWorks.App.UI
+    PickerAncestorBoxItem / the picker overlay + HUD window pairing) is reused across both the
+    Property Inspector and Window Reparenting entry points, with feature-specific extra
+    options appended. Did NOT proceed past this picker (did not pick "Crop a region" or select
+    an ancestor to reparent) since actually reparenting a real window is a genuinely
+    state-changing action per this skill's mutating-action rule - closed via CloseButton
+    instead, which closed both the HUD and the underlying overlay together (same coupling
+    observed in the Inspect UI Element flow above). The full reparent mechanics themselves
+    (ReparentEngine.Reparent, crop math, host-frame window, restore flow) are documented in
+    docs/REPARENT_FEATURE_PLAN.md and docs/KNOWN_OPEN_FINDINGS.md but not yet confirmed via
+    this tree.
+  Ctrl+Alt+I (HotkeyPropertyInspector) - same flow as tray's "Inspect UI Element..." above
+    (confirmed live via the tray menu path, not independently re-verified via this hotkey)
+  Ctrl+Alt+R (HotkeyEmergencyReset) - see Emergency Reset above, not yet explored

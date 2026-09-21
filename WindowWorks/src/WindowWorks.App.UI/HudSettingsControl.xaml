@@ -49,7 +49,6 @@
         <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">Show HUD for</TextBlock>
         <CheckBox x:Name="ChkOpacityHud" Content="Opacity changes" Margin="0,6,0,0" IsChecked="{Binding ShowOnOpacityChange, Mode=TwoWay}" />
         <CheckBox x:Name="ChkTopmostHud" Content="Topmost toggles" Margin="0,6,0,0" IsChecked="{Binding ShowOnTopmostToggle, Mode=TwoWay}" />
-        <CheckBox x:Name="ChkPresetHud" Content="Preset applied" Margin="0,6,0,0" IsChecked="{Binding ShowOnPresetApplied, Mode=TwoWay}" />
 
         <TextBlock FontWeight="SemiBold" Margin="0,12,0,0">Show HUD for Click-Through</TextBlock>
         <CheckBox x:Name="ChkGestureHud" Content="Click-Through gesture (Ctrl+Alt+Click)" Margin="0,6,0,0" IsChecked="{Binding ShowOnClickThroughGesture, Mode=TwoWay}" />

@@ -10,7 +10,7 @@ namespace WindowWorks.App.UI
     /// Yellow-box highlight rectangle used only during an active picker session
     /// (docs/REPARENT_FEATURE_PLAN.md §6.2/§6.3). Deliberately a new, separate class from
     /// <see cref="HighlightOverlay"/> (which is a fire-and-forget, auto-closing "flash" shown
-    /// after a preset is applied) — this window has no auto-close timer and is driven entirely by
+    /// after a normal one-shot action completes) — this window has no auto-close timer and is driven entirely by
     /// the picker session's mouse-move/click loop via <see cref="ShowAround"/>/<see cref="Hide"/>.
     /// </summary>
     public partial class PickerHighlightWindow : Window

@@ -79,13 +79,12 @@ namespace WindowWorks.App.UI
                 {
                     Dispatcher.Invoke(() => { try { TxtHudDuration.Text = vm.DurationMs.ToString(); } catch { } });
                 }
-                else if (e.PropertyName == nameof(vm.ShowOnOpacityChange) || e.PropertyName == nameof(vm.ShowOnTopmostToggle) || e.PropertyName == nameof(vm.ShowOnPresetApplied))
+                else if (e.PropertyName == nameof(vm.ShowOnOpacityChange) || e.PropertyName == nameof(vm.ShowOnTopmostToggle))
                 {
                     Dispatcher.Invoke(() =>
                     {
                         try { ChkOpacityHud.IsChecked = vm.ShowOnOpacityChange; } catch { }
                         try { ChkTopmostHud.IsChecked = vm.ShowOnTopmostToggle; } catch { }
-                        try { ChkPresetHud.IsChecked = vm.ShowOnPresetApplied; } catch { }
                     });
                 }
             }
@@ -110,7 +109,6 @@ namespace WindowWorks.App.UI
                     try { TxtHudDuration.Text = vm.DurationMs.ToString(); } catch { }
                     try { ChkOpacityHud.IsChecked = vm.ShowOnOpacityChange; } catch { }
                     try { ChkTopmostHud.IsChecked = vm.ShowOnTopmostToggle; } catch { }
-                    try { ChkPresetHud.IsChecked = vm.ShowOnPresetApplied; } catch { }
 
                     UpdatePreviewFromText();
                     UpdateTransparencyDisplay();

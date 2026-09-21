@@ -92,8 +92,8 @@ namespace WindowWorks.App
         private System.Threading.SynchronizationContext? _syncContext;
         private readonly Models.AppSettings _settings;
         private readonly System.Collections.Generic.List<int> _registeredHotkeyIds = new();
-        // Tracks the last hotkey string actually applied for each id (0=CommandPalette,
-        // 1=EmergencyReset, 2=WindowReparent, 3=PropertyInspector), so ApplyHotkeySettings can re-register only the
+        // Tracks the last hotkey string actually applied for each id (1=EmergencyReset,
+        // 2=WindowReparent, 3=PropertyInspector), so ApplyHotkeySettings can re-register only the
         // id(s) whose setting actually changed instead of tearing down and re-claiming every
         // hotkey on every save -- unregistering an unchanged hotkey and immediately
         // re-registering it is an unnecessary race that can transiently fail (error 1408) even
@@ -159,8 +159,8 @@ namespace WindowWorks.App
         private void HandleHotkeyMessage(int id, HotkeyModifiers mods, Keys key)
         {
             // Handle special registered hotkeys by id when known by convention
-            // id==0: HotkeyCommandPalette, id==1: HotkeyEmergencyReset, id==2: HotkeyWindowReparent,
-            // id==3: HotkeyPropertyInspector
+            // id==1: HotkeyEmergencyReset, id==2: HotkeyWindowReparent, id==3: HotkeyPropertyInspector
+            // (id==0 is intentionally unused; the former Command Palette hotkey was removed.)
             // (Click-Through Reset previously reserved id==2; that hotkey registration was removed
             // to avoid conflicts, freeing id==2 for the reparent picker hotkey below.)
 
@@ -475,7 +475,6 @@ namespace WindowWorks.App
         {
             return new Dictionary<int, HotkeyRegistrationOutcome>
             {
-                [0] = ApplyOneHotkey(0, settings.HotkeyCommandPalette, HotkeyModifiers.Win, Keys.Oem3),
                 [1] = ApplyOneHotkey(1, settings.HotkeyEmergencyReset, HotkeyModifiers.Ctrl | HotkeyModifiers.Shift, Keys.R),
             // Window Reparenting picker (docs/REPARENT_FEATURE_PLAN.md §14 Phase 1 Part 1)
                 [2] = ApplyOneHotkey(2, settings.HotkeyWindowReparent, HotkeyModifiers.Ctrl | HotkeyModifiers.Alt, Keys.P),
@@ -487,7 +486,7 @@ namespace WindowWorks.App
         /// (Re)registers a single hotkey id only if its configured string actually differs from
         /// what's currently registered for that id -- see <see cref="_appliedHotkeyStrings"/>.
         /// This is what lets saving one changed shortcut (e.g. Window Reparenting) leave the
-        /// other, unrelated, already-working hotkeys (Command Palette, Reset All) completely
+        /// other, unrelated, already-working hotkeys (for example Reset All) completely
         /// untouched instead of unregistering and re-registering everything on every apply.
         /// </summary>
         private HotkeyRegistrationOutcome ApplyOneHotkey(int id, string? configured, HotkeyModifiers fallbackMods, Keys fallbackKey)

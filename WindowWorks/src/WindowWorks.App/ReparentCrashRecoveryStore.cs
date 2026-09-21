@@ -10,8 +10,8 @@ namespace WindowWorks.App
     /// Crash-recovery persistence for the Window Reparenting feature (docs/REPARENT_FEATURE_PLAN.md
     /// §14 Phase 1 item 10 / §12's detailed design). Maintains a small on-disk JSON state file at
     /// <c>%APPDATA%\WindowWorks\reparented-windows.json</c> (same folder convention as
-    /// <see cref="Persistence"/>'s <c>settings.json</c>/<c>presets.json</c>, but a separate,
-    /// stricter, synchronous-atomic-write helper — deliberately not reusing
+    /// <see cref="Persistence"/>'s <c>settings.json</c>, but a separate, stricter,
+    /// synchronous-atomic-write helper — deliberately not reusing
     /// <see cref="Persistence"/>'s plain <c>File.WriteAllText</c>, per the plan's explicit note
     /// that this feature's durability requirement is new, not something to copy as-is) so that any
     /// currently-reparented windows can be detected and restored on the next WindowWorks launch if

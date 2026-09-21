@@ -15,7 +15,6 @@ namespace WindowWorks.App.UI.ViewModels
         private int _durationMs;
         private bool _showOnOpacityChange;
         private bool _showOnTopmostToggle;
-        private bool _showOnPresetApplied;
         private bool _showOnClickThroughGesture;
         private bool _showOnClickThroughModifier;
 
@@ -26,7 +25,6 @@ namespace WindowWorks.App.UI.ViewModels
         public int DurationMs { get => _durationMs; set { if (value == _durationMs) return; _durationMs = value; OnPropertyChanged(); } }
         public bool ShowOnOpacityChange { get => _showOnOpacityChange; set { if (value == _showOnOpacityChange) return; _showOnOpacityChange = value; OnPropertyChanged(); } }
         public bool ShowOnTopmostToggle { get => _showOnTopmostToggle; set { if (value == _showOnTopmostToggle) return; _showOnTopmostToggle = value; OnPropertyChanged(); } }
-        public bool ShowOnPresetApplied { get => _showOnPresetApplied; set { if (value == _showOnPresetApplied) return; _showOnPresetApplied = value; OnPropertyChanged(); } }
         public bool ShowOnClickThroughGesture { get => _showOnClickThroughGesture; set { if (value == _showOnClickThroughGesture) return; _showOnClickThroughGesture = value; OnPropertyChanged(); } }
         public bool ShowOnClickThroughModifier { get => _showOnClickThroughModifier; set { if (value == _showOnClickThroughModifier) return; _showOnClickThroughModifier = value; OnPropertyChanged(); } }
 
@@ -45,7 +43,6 @@ namespace WindowWorks.App.UI.ViewModels
                 if (d.TryGetValue("HudDurationMs", out v) && v.TryGetInt32(out var dm)) DurationMs = dm;
                 if (d.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == JsonValueKind.True) ShowOnOpacityChange = true; else if (d.TryGetValue("ShowHudOnOpacityChange", out v) && v.ValueKind == JsonValueKind.False) ShowOnOpacityChange = false;
                 if (d.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == JsonValueKind.True) ShowOnTopmostToggle = true; else if (d.TryGetValue("ShowHudOnTopmostToggle", out v) && v.ValueKind == JsonValueKind.False) ShowOnTopmostToggle = false;
-                if (d.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == JsonValueKind.True) ShowOnPresetApplied = true; else if (d.TryGetValue("ShowHudOnPresetApplied", out v) && v.ValueKind == JsonValueKind.False) ShowOnPresetApplied = false;
                 if (d.TryGetValue("ShowHudOnClickThroughGesture", out v) && v.ValueKind == JsonValueKind.True) ShowOnClickThroughGesture = true; else if (d.TryGetValue("ShowHudOnClickThroughGesture", out v) && v.ValueKind == JsonValueKind.False) ShowOnClickThroughGesture = false;
                 if (d.TryGetValue("ShowHudOnClickThroughModifier", out v) && v.ValueKind == JsonValueKind.True) ShowOnClickThroughModifier = true; else if (d.TryGetValue("ShowHudOnClickThroughModifier", out v) && v.ValueKind == JsonValueKind.False) ShowOnClickThroughModifier = false;
 
@@ -80,7 +77,6 @@ namespace WindowWorks.App.UI.ViewModels
             d["HudDurationMs"] = DurationMs;
             d["ShowHudOnOpacityChange"] = ShowOnOpacityChange;
             d["ShowHudOnTopmostToggle"] = ShowOnTopmostToggle;
-            d["ShowHudOnPresetApplied"] = ShowOnPresetApplied;
             d["ShowHudOnClickThroughGesture"] = ShowOnClickThroughGesture;
             d["ShowHudOnClickThroughModifier"] = ShowOnClickThroughModifier;
             return d;

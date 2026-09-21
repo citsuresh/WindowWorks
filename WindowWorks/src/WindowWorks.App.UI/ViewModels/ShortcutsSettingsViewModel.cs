@@ -8,14 +8,12 @@ namespace WindowWorks.App.UI.ViewModels
 {
     public class ShortcutsSettingsViewModel : INotifyPropertyChanged, ISettingsSectionViewModel
     {
-        private string? _commandPalette;
         private string? _emergencyReset;
         private string? _windowReparent;
         private string? _propertyInspector = "Ctrl+Alt+I";
         private string? _opacityGesture;
         private string? _toggleGesture;
         // Exposed for binding to ShortcutPicker.Shortcut
-        public string? CommandPalette { get => _commandPalette; set { if (value == _commandPalette) return; _commandPalette = value; OnPropertyChanged(); } }
         public string? EmergencyReset { get => _emergencyReset; set { if (value == _emergencyReset) return; _emergencyReset = value; OnPropertyChanged(); } }
         public string? WindowReparent { get => _windowReparent; set { if (value == _windowReparent) return; _windowReparent = value; OnPropertyChanged(); } }
         public string? PropertyInspector { get => _propertyInspector; set { if (value == _propertyInspector) return; _propertyInspector = value; OnPropertyChanged(); } }
@@ -27,7 +25,6 @@ namespace WindowWorks.App.UI.ViewModels
         public event PropertyChangedEventHandler? PropertyChanged;
 
         // Commands to edit shortcuts via the dialog service
-        public System.Windows.Input.ICommand EditCommandPalette { get; }
         public System.Windows.Input.ICommand EditEmergencyReset { get; }
         public System.Windows.Input.ICommand EditWindowReparent { get; }
         public System.Windows.Input.ICommand EditPropertyInspector { get; }
@@ -39,7 +36,6 @@ namespace WindowWorks.App.UI.ViewModels
         public ShortcutsSettingsViewModel(Services.IDialogService? dialogService)
         {
             _dialogService = dialogService;
-            EditCommandPalette = new RelayCommand(_ => ExecuteEditCommandPalette());
             EditEmergencyReset = new RelayCommand(_ => ExecuteEditEmergencyReset());
             EditWindowReparent = new RelayCommand(_ => ExecuteEditWindowReparent());
             EditPropertyInspector = new RelayCommand(_ => ExecuteEditPropertyInspector());
@@ -48,16 +44,6 @@ namespace WindowWorks.App.UI.ViewModels
         protected void OnPropertyChanged([CallerMemberName] string? name = null)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-        }
-
-        private void ExecuteEditCommandPalette()
-        {
-            try
-            {
-                var result = _dialogService?.ShowShortcutCapture(CommandPalette);
-                if (!string.IsNullOrWhiteSpace(result)) CommandPalette = result;
-            }
-            catch { }
         }
 
         private void ExecuteEditEmergencyReset()
@@ -97,8 +83,7 @@ namespace WindowWorks.App.UI.ViewModels
             if (d == null) return;
             try
             {
-                if (d.TryGetValue("HotkeyCommandPalette", out var v) && v.ValueKind == JsonValueKind.String) CommandPalette = v.GetString();
-                if (d.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == JsonValueKind.String) EmergencyReset = v.GetString();
+                if (d.TryGetValue("HotkeyEmergencyReset", out var v) && v.ValueKind == JsonValueKind.String) EmergencyReset = v.GetString();
                 if (d.TryGetValue("HotkeyWindowReparent", out v) && v.ValueKind == JsonValueKind.String) WindowReparent = v.GetString();
                 if (d.TryGetValue("HotkeyPropertyInspector", out v) && v.ValueKind == JsonValueKind.String) PropertyInspector = v.GetString();
                 if (d.TryGetValue("HotkeyOpacityGesture", out v) && v.ValueKind == JsonValueKind.String) OpacityGesture = v.GetString();
@@ -110,7 +95,6 @@ namespace WindowWorks.App.UI.ViewModels
         public Dictionary<string, object?> ToDictionary()
         {
             var d = new Dictionary<string, object?>();
-            if (!string.IsNullOrWhiteSpace(CommandPalette)) d["HotkeyCommandPalette"] = CommandPalette;
             if (!string.IsNullOrWhiteSpace(EmergencyReset)) d["HotkeyEmergencyReset"] = EmergencyReset;
             if (!string.IsNullOrWhiteSpace(WindowReparent)) d["HotkeyWindowReparent"] = WindowReparent;
             if (!string.IsNullOrWhiteSpace(PropertyInspector)) d["HotkeyPropertyInspector"] = PropertyInspector;

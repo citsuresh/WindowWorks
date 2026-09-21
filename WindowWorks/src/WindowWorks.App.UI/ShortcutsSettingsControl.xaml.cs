@@ -22,8 +22,7 @@ namespace WindowWorks.App.UI
         {
             if (d == null) return;
             _suppressNotifications = true;
-            if (d.TryGetValue("HotkeyCommandPalette", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) PickerCommandPalette.Shortcut = v.GetString();
-            if (d.TryGetValue("HotkeyEmergencyReset", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) PickerEmergencyReset.Shortcut = v.GetString();
+            if (d.TryGetValue("HotkeyEmergencyReset", out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) PickerEmergencyReset.Shortcut = v.GetString();
             // Load persisted gestures and update visible labels
             if (d.TryGetValue("HotkeyOpacityNudge", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) LblOpacityGesture.Text = v.GetString() ?? LblOpacityGesture.Text;
             if (d.TryGetValue("HotkeyToggleTopmost", out v) && v.ValueKind == System.Text.Json.JsonValueKind.String) LblToggleGesture.Text = v.GetString() ?? LblToggleGesture.Text;
@@ -50,20 +49,7 @@ namespace WindowWorks.App.UI
 
         private void ValidateConflicts()
         {
-            // Reset
-            PickerCommandPalette.BorderBrush = System.Windows.Media.Brushes.Gray;
             PickerEmergencyReset.BorderBrush = System.Windows.Media.Brushes.Gray;
-
-            // Parse both and compare
-            if (!string.IsNullOrWhiteSpace(PickerCommandPalette.Shortcut) && !string.IsNullOrWhiteSpace(PickerEmergencyReset.Shortcut))
-            {
-                if (PickerCommandPalette.Shortcut == PickerEmergencyReset.Shortcut)
-                {
-                    PickerCommandPalette.BorderBrush = System.Windows.Media.Brushes.Red;
-                    PickerEmergencyReset.BorderBrush = System.Windows.Media.Brushes.Red;
-                }
-            }
-
         }
 
         // Simple local hotkey parser that returns modifier mask and key token.
@@ -95,15 +81,7 @@ namespace WindowWorks.App.UI
 
         private void OnShortcutChanged(object sender, string shortcut)
         {
-            if (sender == PickerCommandPalette)
-            {
-                // Handle Command palette shortcut change
-                ValidateConflicts();
-                UpdateInitialDictFromUi();
-                HotkeysChanged?.Invoke(this);
-                SettingsChanged?.Invoke();
-            }
-            else if (sender == PickerEmergencyReset)
+            if (sender == PickerEmergencyReset)
             {
                 // Handle Reset All shortcut change
                 ValidateConflicts();
@@ -112,12 +90,6 @@ namespace WindowWorks.App.UI
                 SettingsChanged?.Invoke();
             }
             // Only handle editable keyboard pickers
-        }
-
-        private void BtnEditCommand_Click(object? sender, System.Windows.RoutedEventArgs e)
-        {
-            // Handled by ViewModel command in MVVM mode. Keep for backward compatibility only.
-            ShowCaptureForPicker(PickerCommandPalette);
         }
 
         private void BtnEditEmergency_Click(object? sender, System.Windows.RoutedEventArgs e)
@@ -138,7 +110,6 @@ namespace WindowWorks.App.UI
                 win.ConflictChecker = (cap) =>
                 {
                     // check against existing keyboard hotkeys
-                    if (!string.IsNullOrWhiteSpace(PickerCommandPalette.Shortcut) && PickerCommandPalette.Shortcut == cap) return true;
                     if (!string.IsNullOrWhiteSpace(PickerEmergencyReset.Shortcut) && PickerEmergencyReset.Shortcut == cap) return true;
                     return false;
                 };
@@ -165,7 +136,6 @@ namespace WindowWorks.App.UI
                 try { var cur = LblToggleGesture.Text; if (!string.IsNullOrWhiteSpace(cur)) win.TxtCurrent.Text = cur; } catch { }
                 win.ConflictChecker = (cap) =>
                 {
-                    if (!string.IsNullOrWhiteSpace(PickerCommandPalette.Shortcut) && PickerCommandPalette.Shortcut == cap) return true;
                     if (!string.IsNullOrWhiteSpace(PickerEmergencyReset.Shortcut) && PickerEmergencyReset.Shortcut == cap) return true;
                     return false;
                 };
@@ -191,7 +161,6 @@ namespace WindowWorks.App.UI
                 win.ConflictChecker = (cap) =>
                 {
                     // simple conflict check against other pickers
-                    if (picker != PickerCommandPalette && !string.IsNullOrWhiteSpace(PickerCommandPalette.Shortcut) && PickerCommandPalette.Shortcut == cap) return true;
                     if (picker != PickerEmergencyReset && !string.IsNullOrWhiteSpace(PickerEmergencyReset.Shortcut) && PickerEmergencyReset.Shortcut == cap) return true;
                     return false;
                 };
@@ -201,7 +170,6 @@ namespace WindowWorks.App.UI
                     {
                         picker.Shortcut = win.Captured;
                         // update any visible label bound to this picker
-                        try { if (picker == PickerCommandPalette && this.FindName("LblCommandDisplay") is System.Windows.Controls.TextBlock tb) tb.Text = win.Captured; } catch { }
                         try { if (picker == PickerEmergencyReset && this.FindName("LblEmergencyDisplay") is System.Windows.Controls.TextBlock tb2) tb2.Text = win.Captured; } catch { }
                         ValidateConflicts();
                         UpdateInitialDictFromUi();
@@ -218,13 +186,7 @@ namespace WindowWorks.App.UI
             try
             {
                 if (_initialDict == null) return;
-                var cmd = PickerCommandPalette?.Shortcut;
                 var ers = PickerEmergencyReset?.Shortcut;
-                if (!string.IsNullOrWhiteSpace(cmd))
-                {
-                    // Use JsonSerializer.Serialize to produce a correctly escaped JSON string literal
-                    _initialDict["HotkeyCommandPalette"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(cmd)).RootElement;
-                }
                 if (!string.IsNullOrWhiteSpace(ers))
                 {
                     _initialDict["HotkeyEmergencyReset"] = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(ers)).RootElement;
