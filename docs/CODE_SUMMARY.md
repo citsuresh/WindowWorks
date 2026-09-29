@@ -12,7 +12,9 @@ graph LR
 | `Program` / `TrayApplicationContext` | `WindowWorks/src/WindowWorks.App/Program.cs` | Composes application services and runs the tray lifetime. |
 | `WindowManager` | `WindowWorks/src/WindowWorks.App/WindowManager.cs` | Controls tracked window state and behavior. |
 | `HotkeyManager` | `WindowWorks/src/WindowWorks.App/HotkeyManager.cs` | Registers and dispatches global shortcuts. |
-| `Persistence` | `WindowWorks/src/WindowWorks.App/Persistence.cs` | Persists application settings and presets. |
+| `Persistence` | `WindowWorks/src/WindowWorks.App/Persistence.cs` | Persists application settings. |
+| `PropertyInspectorController` | `WindowWorks/src/WindowWorks.App/PropertyInspectorController.cs` | Coordinates UIA inspection, picker selection, and optional DevTools relaunch/handoff. |
+| CDP services | `WindowWorks/src/WindowWorks.App/Cdp/` | Discover, correlate, read, write, and relaunch Chromium DevTools targets. |
 | `WpfApp` / `AppServices` | `WindowWorks/src/WindowWorks.App.UI/App.xaml.cs`, `AppServices.cs` | Hosts WPF UI services for the WinForms-hosted application. |
 | `SettingsWindow` | `WindowWorks/src/WindowWorks.App.UI/SettingsWindow.xaml.cs` | Hosts settings sections and user configuration. |
 | Settings view models | `WindowWorks/src/WindowWorks.App.UI/ViewModels/` | Bind general, highlight, HUD, shortcut, and click-through settings. |
