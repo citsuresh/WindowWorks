@@ -286,7 +286,7 @@ namespace WindowWorks.App
             var candidate = (
                 Left: (int)Math.Round(rect.Left),
                 Top: (int)Math.Round(rect.Top),
-                Right: (int)Math.Round(rect.Right),
+                Right: (int)Math.Floor(rect.Right),
                 Bottom: (int)Math.Round(rect.Bottom));
 
             return RectClipHelper.TryClipToWindowBounds(candidate, browserClientScreenRect, out clipped);

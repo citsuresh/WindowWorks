@@ -52,9 +52,9 @@ namespace WindowWorks.App
             public double EffectiveDpi { get; init; } = 96.0;
 
             /// <summary>
-            /// True if <paramref name="targetHwnd"/> was maximized at computation time, meaning
-            /// the monitor-work-area special case (§6.5) was used instead of the normal
-            /// client/window-rect diff.
+            /// Whether <paramref name="targetHwnd"/> was maximized at computation time. Crop
+            /// offsets use the target outer-window origin for either window state after chrome
+            /// removal.
             /// </summary>
             public bool WasMaximized { get; init; }
         }
@@ -93,49 +93,6 @@ namespace WindowWorks.App
             bool havePlacement = NativeMethods.GetWindowPlacement(targetHwnd, ref placement);
             bool isMaximized = havePlacement && placement.showCmd == NativeMethods.SW_SHOWMAXIMIZED;
 
-            int diffX;
-            int diffY;
-
-            if (isMaximized)
-            {
-                // §6.5 maximized special case: use the monitor's work-area rect instead of the
-                // normal client/window-rect diff, since a maximized window's GetWindowRect can
-                // extend slightly beyond the visible work area (the non-client "overhang" trick
-                // Windows uses for maximized windows).
-                IntPtr monitorForWork = NativeMethods.MonitorFromWindow(targetHwnd, NativeMethods.MONITOR_DEFAULTTONEAREST);
-                if (monitorForWork == IntPtr.Zero)
-                {
-                    return false;
-                }
-
-                var monitorInfo = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
-                if (!NativeMethods.GetMonitorInfo(monitorForWork, ref monitorInfo))
-                {
-                    return false;
-                }
-
-                diffX = monitorInfo.rcWork.Left - windowRect.Left;
-                diffY = monitorInfo.rcWork.Top - windowRect.Top;
-            }
-            else
-            {
-                // Normal case: diff between the target's client area (in screen space, excluding
-                // title bar/borders) and its full window rect.
-                if (!NativeMethods.GetClientRect(targetHwnd, out var clientRect))
-                {
-                    return false;
-                }
-
-                var clientOrigin = new NativeMethods.POINT { X = 0, Y = 0 };
-                if (!NativeMethods.ClientToScreen(targetHwnd, ref clientOrigin))
-                {
-                    return false;
-                }
-
-                diffX = clientOrigin.X - windowRect.Left;
-                diffY = clientOrigin.Y - windowRect.Top;
-            }
-
             // §6.5: crop rect's per-monitor DPI, queried via MonitorFromWindow(target,
             // MONITOR_DEFAULTTONULL) — returns null if the window doesn't currently intersect a
             // monitor, treated as a failure per the plan rather than crashing/defaulting silently.
@@ -161,13 +118,11 @@ namespace WindowWorks.App
                 // above rather than failing the whole computation over a DPI-query issue.
             }
 
-            // The selection is screen-relative, while the reparented target's effective origin
-            // is its client area (or monitor work area for a maximized target). Convert directly
-            // to that content-relative coordinate system before moving the target negatively.
-            int contentOriginX = windowRect.Left + diffX;
-            int contentOriginY = windowRect.Top + diffY;
-            int cropLeftContentRelative = cropRectScreen.Left - contentOriginX;
-            int cropTopContentRelative = cropRectScreen.Top - contentOriginY;
+            // ReparentEngine strips the target's non-client chrome after SetParent, so its child
+            // coordinates begin at the pre-reparent outer window origin for both normal and
+            // maximized windows.
+            int cropLeftWindowRelative = cropRectScreen.Left - windowRect.Left;
+            int cropTopWindowRelative = cropRectScreen.Top - windowRect.Top;
 
             int cropWidth = Math.Max(1, cropRectScreen.Right - cropRectScreen.Left);
             int cropHeight = Math.Max(1, cropRectScreen.Bottom - cropRectScreen.Top);
@@ -178,8 +133,8 @@ namespace WindowWorks.App
                 CropHeight = cropHeight,
                 // §6.5: "the target is moved by the negative crop-rect origin so that the
                 // desired crop region lands at the child window's (0,0)".
-                TargetOffsetX = -cropLeftContentRelative,
-                TargetOffsetY = -cropTopContentRelative,
+                TargetOffsetX = -cropLeftWindowRelative,
+                TargetOffsetY = -cropTopWindowRelative,
                 EffectiveDpi = effectiveDpi,
                 WasMaximized = isMaximized
             };
@@ -220,7 +175,6 @@ namespace WindowWorks.App
         {
             public const int SW_SHOWMAXIMIZED = 3;
             public const uint MONITOR_DEFAULTTONULL = 0;
-            public const uint MONITOR_DEFAULTTONEAREST = 2;
             public const uint MDT_EFFECTIVE_DPI = 0;
 
             [StructLayout(LayoutKind.Sequential)]
@@ -250,15 +204,6 @@ namespace WindowWorks.App
                 public RECT rcNormalPosition;
             }
 
-            [StructLayout(LayoutKind.Sequential)]
-            public struct MONITORINFO
-            {
-                public int cbSize;
-                public RECT rcMonitor;
-                public RECT rcWork;
-                public uint dwFlags;
-            }
-
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool IsWindow(IntPtr hWnd);
 
@@ -266,19 +211,10 @@ namespace WindowWorks.App
             public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
             [DllImport("user32.dll", SetLastError = true)]
-            public static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
-
-            [DllImport("user32.dll", SetLastError = true)]
-            public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
-
-            [DllImport("user32.dll", SetLastError = true)]
             public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
 
             [DllImport("user32.dll")]
             public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
-
-            [DllImport("user32.dll", CharSet = CharSet.Auto)]
-            public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
             [DllImport("shcore.dll")]
             public static extern int GetDpiForMonitor(IntPtr hmonitor, uint dpiType, out uint dpiX, out uint dpiY);
