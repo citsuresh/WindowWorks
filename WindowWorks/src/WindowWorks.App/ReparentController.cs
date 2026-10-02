@@ -33,6 +33,7 @@ namespace WindowWorks.App
         private readonly ReparentTrackingList _trackingList = new();
         private readonly System.Windows.Threading.Dispatcher _ownerDispatcher;
         private readonly Models.AppSettings _settings;
+        private readonly WindowManager? _windowManager;
         private readonly ReparentWinEventWatcher _winEventWatcher = new();
         private readonly ReparentCrashRecoveryStore _crashRecoveryStore;
         private readonly Mutex _ownershipMutex;
@@ -58,10 +59,11 @@ namespace WindowWorks.App
         /// (its own default constructor resolves the real %APPDATA%\WindowWorks\ path) if not
         /// supplied, so existing callers/tests keep working unchanged.
         /// </summary>
-        public ReparentController(Models.AppSettings? settings = null, ReparentCrashRecoveryStore? crashRecoveryStore = null)
+        public ReparentController(Models.AppSettings? settings = null, ReparentCrashRecoveryStore? crashRecoveryStore = null, WindowManager? windowManager = null)
         {
             _ownerDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
             _settings = settings ?? new Models.AppSettings();
+            _windowManager = windowManager;
             _crashRecoveryStore = crashRecoveryStore ?? new ReparentCrashRecoveryStore();
             _ownershipMutex = new Mutex(false, @"Local\WindowWorks.ReparentController");
             (_ownsReparenting, _ownsProcessOwnershipLease) = TryAcquireOwnership(_ownershipMutex);
@@ -482,6 +484,8 @@ namespace WindowWorks.App
 
             bool reparented = false;
             ReparentedWindowEntry? entry = null;
+            IntPtr registeredHostHwnd = IntPtr.Zero;
+            long registeredHostId = 0;
 
             host.SocketReady += (_, _) =>
             {
@@ -585,6 +589,8 @@ namespace WindowWorks.App
                     }
                     entry = new ReparentedWindowEntry(target, state, host, cropRectScreen);
                     _trackingList.Add(entry);
+                    registeredHostHwnd = new System.Windows.Interop.WindowInteropHelper(host).Handle;
+                    registeredHostId = _windowManager?.RegisterReparentHost(registeredHostHwnd) ?? 0;
                 }
                 else
                 {
@@ -653,6 +659,7 @@ namespace WindowWorks.App
 
             host.Closed += (_, _) =>
             {
+                if (registeredHostId != 0) _windowManager?.UnregisterReparentHost(registeredHostHwnd, registeredHostId);
                 // RestoreEntry removes a tracking entry only after it proves the target detached
                 // or gone. Do not remove it here: a failed restore cancels host closing and must
                 // retain the entry for retry and recovery.

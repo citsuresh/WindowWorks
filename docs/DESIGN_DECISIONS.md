@@ -1,5 +1,23 @@
 # Design Decisions
 
+## 2026-10-02 — External HWND lifetimes need destroy-invalidated generations
+
+- **Decision:** Extend external `WindowIdentity` with an in-process monotonically increasing lifetime generation keyed by top-level HWND. Invalidate it only for `EVENT_OBJECT_DESTROY` notifications with `OBJID_WINDOW` and child ID zero; undo compares the full identity, including generation. If the external destroy hook could not be installed, reject external identity capture rather than issue a token that will never expire. Existing reparent hosts retain their independent native HWND-property token.
+- **Rationale:** One process can create another window of the same class using a just-destroyed HWND; process start time and class then match even though the window is unrelated. A new lifetime generation prevents an old snapshot from restoring to that successor after the destroy event is delivered.
+- **Alternatives considered:** Relying only on process/class and the managed-topmost cache does not protect queued undo snapshots; tagging external HWNDs with native properties would modify windows WindowWorks does not own.
+
+## 2026-10-02 — Active reparent hosts may be managed topmost, without exposing other WindowWorks UI
+
+- **Decision:** Register a host only after a successful attach, assign its HWND a unique native property token, and unregister it on the host's Closed event. Accept own-process HWNDs only when both the active registration and native token match. Resolve owned host overlay picks back to their registered host; render the topmost and reparent outlines in separate rings when both are enabled. Undo/reset on host snapshots restores topmost only.
+- **Rationale:** PID/start/class alone cannot distinguish successive same-class host HWNDs; a native HWND property and registration token reject closed/reused handles without accessing WPF state from the WinForms timer. Other WindowWorks UI, owned overlays, and embedded children are never independent topmost targets.
+- **Alternatives considered:** Allowing every own-process HWND risks toggling HUD/settings/overlay windows; relying solely on native class and process identity risks mutating a recycled host handle.
+
+## 2026-10-02 — Independent native outline for managed always-on-top windows
+
+- **Decision:** Track only successful WindowWorks topmost transitions by HWND and process-start/class identity, with a window-destroy hook and periodic validation of identity and native topmost state. Render an independent native layered, hollow-region, click-through outline immediately above each eligible external target; keep it separate from both the short-lived action highlight and reparent-host outline.
+- **Rationale:** External windows are not owned by the reparent host and may be closed, recycled, minimized, or have topmost changed by other software. An independent WinForms-thread overlay follows their physical Win32 frame, while state validation removes stale outlines and shared settings enable immediate visual updates after Save.
+- **Alternatives considered:** Reusing the timed WPF action overlay would shut down after its short duration; attaching to reparent-host outlines would couple unrelated window lifetimes.
+
 ## 2026-09-19 — DevTools relaunch assist: fresh temp profile beats close-then-relaunch, and can't preserve sign-in while the original stays open
 
 - **Decision:** `CdpBrowserRelauncher` (Property Inspector Phase E sub-phase 6) launches a

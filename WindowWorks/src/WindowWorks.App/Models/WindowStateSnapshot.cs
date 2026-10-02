@@ -12,12 +12,14 @@ namespace WindowWorks.App.Models
         public int ExStyle { get; set; }
         public int Opacity { get; set; } // 0-100
         public bool IsTopmost { get; set; }
+        internal WindowWorks.App.WindowManager.WindowIdentity? Identity { get; set; }
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
         public static WindowStateSnapshot FromWindow(IntPtr hwnd)
         {
             var s = new WindowStateSnapshot();
             s.Hwnd = hwnd;
+            s.Identity = WindowWorks.App.WindowManager.CaptureIdentity(hwnd);
             s.ExStyle = WindowWorks.App.WindowManager.Native.GetWindowLong(hwnd, WindowWorks.App.WindowManager.Native.GWL_EXSTYLE);
             // Determine opacity by querying layered window attributes when available.
             try
@@ -43,22 +45,23 @@ namespace WindowWorks.App.Models
             {
                 s.Opacity = 100;
             }
-            s.IsTopmost = IsWindowTopmost(hwnd);
+            s.IsTopmost = WindowWorks.App.WindowManager.IsTopmost(hwnd);
             return s;
-        }
-
-        private static bool IsWindowTopmost(IntPtr hwnd)
-        {
-            // Try to detect topmost by GetWindowRect and comparing Z-order via SetWindowPos queries is complex.
-            // For now, use a simple heuristic: call GetWindowLong for topmost flag not available. Default false.
-            return false;
         }
 
         public void Restore(WindowWorks.App.WindowManager wm)
         {
-            if (Hwnd == IntPtr.Zero) return;
+            if (Identity is null || WindowWorks.App.WindowManager.CaptureIdentity(Hwnd) != Identity) return;
+            if (Identity.Value.HostId != 0)
+            {
+                wm.SetTopmost(Hwnd, IsTopmost);
+                return;
+            }
             // Restore exstyle (preserves WS_EX_TRANSPARENT flag as part of ExStyle)
-            WindowWorks.App.WindowManager.Native.SetWindowLong(Hwnd, WindowWorks.App.WindowManager.Native.GWL_EXSTYLE, ExStyle);
+            int currentStyle = WindowWorks.App.WindowManager.Native.GetWindowLong(Hwnd, WindowWorks.App.WindowManager.Native.GWL_EXSTYLE);
+            int restoredStyle = (ExStyle & ~WindowWorks.App.WindowManager.Native.WS_EX_TOPMOST) |
+                (currentStyle & WindowWorks.App.WindowManager.Native.WS_EX_TOPMOST);
+            WindowWorks.App.WindowManager.Native.SetWindowLong(Hwnd, WindowWorks.App.WindowManager.Native.GWL_EXSTYLE, restoredStyle);
             // Restore opacity
             wm.ApplyOpacity(Hwnd, Opacity);
             // Restore topmost

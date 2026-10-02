@@ -409,6 +409,7 @@ namespace WindowWorks.App
             IntPtr hwnd = WindowManager.Native.GetTopmostWindowUnderCursor();
             if (hwnd == IntPtr.Zero) hwnd = _windowManager.GetWindowUnderCursor();
             if (hwnd == IntPtr.Zero) hwnd = _windowManager.GetForegroundWindowHandle();
+            hwnd = _windowManager.ResolveTopmostTarget(hwnd);
             if (hwnd == IntPtr.Zero) return;
 
             try

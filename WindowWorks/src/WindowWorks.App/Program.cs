@@ -94,8 +94,8 @@ namespace WindowWorks.App
             // Reparent controller - created here (not inside TrayApplicationContext) so the tray
             // menu's "Reset Reparenting" entry (docs/REPARENT_FEATURE_PLAN.md §8 step 11) can
             // share the same instance/tracking list as the hotkey-driven picker flow.
-            var reparentController = new ReparentController(settings);
-            var propertyInspectorController = new PropertyInspectorController();
+            var reparentController = new ReparentController(settings, windowManager: windowManager);
+            var propertyInspectorController = new PropertyInspectorController(windowManager);
 
             // Crash recovery (§14 Phase 1 item 10): run once at startup, before any new picker/
             // hotkey activity, so any windows left orphaned by a previous crash (before its

@@ -325,6 +325,19 @@ namespace WindowWorks.App.UI
                     return;
                 }
                 highlightVm.ReparentedWindowHighlightColor = normalized;
+                var topColorBox = (highlightSection.Control as HighlightSettingsControl)?.TxtAlwaysOnTopWindowHighlightColor;
+                var topInput = topColorBox?.Text ?? highlightVm.AlwaysOnTopWindowHighlightColor;
+                if (!ViewModels.HighlightSettingsViewModel.TryNormalizeReparentedWindowHighlightColor(topInput, out var topNormalized))
+                {
+                    NavList.SelectedItem = highlightSection.NavItem;
+                    MessageBox.Show(this, "Enter 6 or 8 hexadecimal digits for the always-on-top window border color. A leading # is optional.",
+                        "Invalid always-on-top window highlight color", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    var field = (_sections["Highlight"].Control as HighlightSettingsControl)?.TxtAlwaysOnTopWindowHighlightColor;
+                    field?.Focus();
+                    field?.SelectAll();
+                    return;
+                }
+                highlightVm.AlwaysOnTopWindowHighlightColor = topNormalized;
             }
             // Collect settings from current content control(s).
             // For now, collect from known controls if present.
@@ -352,6 +365,10 @@ namespace WindowWorks.App.UI
                         try { UpdateBindingSource(h, "TxtReparentedWindowHighlightThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
                         try { UpdateBindingSource(h, "TxtReparentedWindowHighlightCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }
                         try { UpdateBindingSource(h, "ChkReparentedWindowHighlight", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtAlwaysOnTopWindowHighlightColor", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtAlwaysOnTopWindowHighlightThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtAlwaysOnTopWindowHighlightCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "ChkAlwaysOnTopWindowHighlight", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
                         try { UpdateBindingSource(h, "SldBorderTransparency", System.Windows.Controls.Slider.ValueProperty); } catch { }
                         try { UpdateBindingSource(h, "TxtBorderThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
                         try { UpdateBindingSource(h, "TxtCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }

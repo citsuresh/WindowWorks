@@ -25,6 +25,9 @@ namespace WindowWorks.App
         private static readonly TimeSpan DevToolsOperationTimeout = TimeSpan.FromSeconds(8);
 
         private readonly Dispatcher _dispatcher = Dispatcher.CurrentDispatcher;
+        private readonly WindowManager _windowManager;
+
+        public PropertyInspectorController(WindowManager windowManager) => _windowManager = windowManager;
         private WindowPickerSession? _activeSession;
         private long _selectionGeneration;
         private long _viewGeneration;
@@ -648,7 +651,7 @@ namespace WindowWorks.App
             }
         }
 
-        private static PropertyReadResult TryReadProperties(PropertyInspectorSelection selection)
+        private PropertyReadResult TryReadProperties(PropertyInspectorSelection selection)
         {
             try
             {
@@ -1474,7 +1477,7 @@ namespace WindowWorks.App
                 : string.Join(",", runtimeIdParts.Select(static value => value.ToString(CultureInfo.InvariantCulture)));
         }
 
-        private static IReadOnlyList<PropertyInspectorProperty> ReadProperties(AutomationElement element, IntPtr containingWindowHandle)
+        private IReadOnlyList<PropertyInspectorProperty> ReadProperties(AutomationElement element, IntPtr containingWindowHandle)
         {
             var current = element.Current;
             bool supportsWritableValuePattern = element.TryGetCurrentPattern(ValuePattern.Pattern, out var valuePatternObject)
@@ -1767,17 +1770,12 @@ namespace WindowWorks.App
             return (true, null);
         }
 
-        private static (bool Success, string? ErrorMessage) WriteIsTopmost(IntPtr hwnd, bool desiredValue)
+        private (bool Success, string? ErrorMessage) WriteIsTopmost(IntPtr hwnd, bool desiredValue)
         {
-            IntPtr insertAfter = desiredValue ? NativeMethods.HWND_TOPMOST : NativeMethods.HWND_NOTOPMOST;
-            if (!NativeMethods.SetWindowPos(hwnd, insertAfter, 0, 0, 0, 0,
-                    NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE))
-            {
-                int error = Marshal.GetLastWin32Error();
-                return (false, $"SetWindowPos fallback failed{(error == 0 ? "." : $" (Win32 error {error}).")}");
-            }
-
-            return (true, null);
+            _windowManager.SetTopmost(hwnd, desiredValue);
+            return WindowManager.IsTopmost(hwnd) == desiredValue
+                ? (true, null)
+                : (false, "SetWindowPos fallback failed to change the topmost state.");
         }
 
         private void PostIfCurrent(long generation, Action action)

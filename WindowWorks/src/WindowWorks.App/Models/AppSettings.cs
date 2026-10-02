@@ -26,6 +26,11 @@ namespace WindowWorks.App.Models
         public int ReparentedWindowHighlightThickness { get; set; } = 4;
         public int ReparentedWindowHighlightCornerRadius { get; set; } = 4;
 
+        public bool EnableAlwaysOnTopWindowHighlight { get; set; } = false;
+        public string AlwaysOnTopWindowHighlightColor { get; set; } = "#CCFFFF00";
+        public int AlwaysOnTopWindowHighlightThickness { get; set; } = 4;
+        public int AlwaysOnTopWindowHighlightCornerRadius { get; set; } = 4;
+
         // Enable visual highlight and HUD confirmation messages
         public bool EnableHighlight { get; set; } = true;
         public bool EnableConfirmations { get; set; } = true;

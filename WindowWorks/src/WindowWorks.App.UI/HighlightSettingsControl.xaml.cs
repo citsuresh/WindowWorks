@@ -62,6 +62,7 @@ namespace WindowWorks.App.UI
                 UpdateColorPreview(!string.IsNullOrWhiteSpace(vmColor) ? vmColor : TxtBorderColor.Text);
                 UpdateHighlightPreviewSettings();
                 UpdateReparentOutlinePreview();
+                UpdateAlwaysOnTopOutlinePreview();
                 // Wire Choose... button to VM command if available
                 try
                 {
@@ -187,6 +188,12 @@ namespace WindowWorks.App.UI
                 {
                     Dispatcher.Invoke(UpdateReparentOutlinePreview);
                 }
+                else if (e.PropertyName == "AlwaysOnTopWindowHighlightColor" ||
+                    e.PropertyName == "AlwaysOnTopWindowHighlightThickness" ||
+                    e.PropertyName == "AlwaysOnTopWindowHighlightCornerRadius")
+                {
+                    Dispatcher.Invoke(UpdateAlwaysOnTopOutlinePreview);
+                }
             }
             catch { }
         }
@@ -195,7 +202,7 @@ namespace WindowWorks.App.UI
         {
             if (sender is not TextBox box) return;
             int current = int.TryParse(box.Text, out int value) ? value : 4;
-            bool thickness = box == TxtReparentedWindowHighlightThickness;
+            bool thickness = box == TxtReparentedWindowHighlightThickness || box == TxtAlwaysOnTopWindowHighlightThickness;
             box.Text = Math.Clamp(current + (e.Delta > 0 ? 1 : -1), thickness ? 1 : 0, thickness ? 64 : 128).ToString();
             e.Handled = true;
         }
@@ -209,6 +216,15 @@ namespace WindowWorks.App.UI
             ReparentOutlinePreview.BorderBrush = new System.Windows.Media.SolidColorBrush(color ?? System.Windows.Media.Colors.Yellow);
         }
 
+        private void UpdateAlwaysOnTopOutlinePreview()
+        {
+            if (DataContext is not ViewModels.HighlightSettingsViewModel vm) return;
+            AlwaysOnTopOutlinePreview.BorderThickness = new Thickness(vm.AlwaysOnTopWindowHighlightThickness);
+            AlwaysOnTopOutlinePreview.CornerRadius = new CornerRadius(vm.AlwaysOnTopWindowHighlightCornerRadius);
+            var color = ParseColorFromString(vm.AlwaysOnTopWindowHighlightColor);
+            AlwaysOnTopOutlinePreview.BorderBrush = new System.Windows.Media.SolidColorBrush(color ?? System.Windows.Media.Colors.Yellow);
+        }
+
         private void SldBorderTransparency_ValueChanged(object? sender, System.Windows.RoutedPropertyChangedEventArgs<double> e)
         {
             try
@@ -218,6 +234,19 @@ namespace WindowWorks.App.UI
                 UpdateHighlightTransparency();
             }
             catch { }
+        }
+
+        private void BtnChooseAlwaysOnTopWindowHighlightColor_Click(object sender, RoutedEventArgs e)
+        {
+            using var dialog = new WinForms.ColorDialog();
+            var current = ParseColorFromString(TxtAlwaysOnTopWindowHighlightColor.Text);
+            if (current.HasValue)
+                dialog.Color = System.Drawing.Color.FromArgb(current.Value.R, current.Value.G, current.Value.B);
+            if (dialog.ShowDialog() == WinForms.DialogResult.OK)
+            {
+                byte alpha = current?.A ?? 0xCC;
+                TxtAlwaysOnTopWindowHighlightColor.Text = $"#{alpha:X2}{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+            }
         }
 
         private void TxtHighlightMs_TextChanged(object? sender, System.Windows.Controls.TextChangedEventArgs e)

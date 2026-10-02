@@ -10,7 +10,8 @@ graph LR
 | Symbol | File | Responsibility |
 | --- | --- | --- |
 | `Program` / `TrayApplicationContext` | `WindowWorks/src/WindowWorks.App/Program.cs` | Composes application services and runs the tray lifetime. |
-| `WindowManager` | `WindowWorks/src/WindowWorks.App/WindowManager.cs` | Controls tracked window state and behavior. |
+| `WindowManager` | `WindowWorks/src/WindowWorks.App/WindowManager.cs` | Controls tracked window state, including registered active reparent-host topmost state. |
+| `TopmostOutlineWindow` | `WindowWorks/src/WindowWorks.App/TopmostOutlineWindow.cs` | Native click-through outline for WindowWorks-managed topmost external windows and active reparent hosts. |
 | `HotkeyManager` | `WindowWorks/src/WindowWorks.App/HotkeyManager.cs` | Registers and dispatches global shortcuts. |
 | `Persistence` | `WindowWorks/src/WindowWorks.App/Persistence.cs` | Persists application settings. |
 | `PropertyInspectorController` | `WindowWorks/src/WindowWorks.App/PropertyInspectorController.cs` | Coordinates UIA inspection, picker selection, and optional DevTools relaunch/handoff. |

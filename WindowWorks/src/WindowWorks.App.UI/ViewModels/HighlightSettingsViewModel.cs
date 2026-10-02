@@ -14,6 +14,10 @@ namespace WindowWorks.App.UI.ViewModels
         private string _reparentedWindowHighlightColor = "#CCFFFF00";
         private int _reparentedWindowHighlightThickness = 4;
         private int _reparentedWindowHighlightCornerRadius = 4;
+        private bool _enableAlwaysOnTopWindowHighlight;
+        private string _alwaysOnTopWindowHighlightColor = "#CCFFFF00";
+        private int _alwaysOnTopWindowHighlightThickness = 4;
+        private int _alwaysOnTopWindowHighlightCornerRadius = 4;
         private int _borderTransparencyPercent;
         private int _borderThickness;
         private int _cornerRadius;
@@ -25,6 +29,10 @@ namespace WindowWorks.App.UI.ViewModels
         public string ReparentedWindowHighlightColor { get => _reparentedWindowHighlightColor; set { if (value == _reparentedWindowHighlightColor) return; _reparentedWindowHighlightColor = value; OnPropertyChanged(); } }
         public int ReparentedWindowHighlightThickness { get => _reparentedWindowHighlightThickness; set { int clamped = Math.Clamp(value, 1, 64); if (clamped == _reparentedWindowHighlightThickness) return; _reparentedWindowHighlightThickness = clamped; OnPropertyChanged(); } }
         public int ReparentedWindowHighlightCornerRadius { get => _reparentedWindowHighlightCornerRadius; set { int clamped = Math.Clamp(value, 0, 128); if (clamped == _reparentedWindowHighlightCornerRadius) return; _reparentedWindowHighlightCornerRadius = clamped; OnPropertyChanged(); } }
+        public bool EnableAlwaysOnTopWindowHighlight { get => _enableAlwaysOnTopWindowHighlight; set { if (value == _enableAlwaysOnTopWindowHighlight) return; _enableAlwaysOnTopWindowHighlight = value; OnPropertyChanged(); } }
+        public string AlwaysOnTopWindowHighlightColor { get => _alwaysOnTopWindowHighlightColor; set { if (value == _alwaysOnTopWindowHighlightColor) return; _alwaysOnTopWindowHighlightColor = value; OnPropertyChanged(); } }
+        public int AlwaysOnTopWindowHighlightThickness { get => _alwaysOnTopWindowHighlightThickness; set { int clamped = Math.Clamp(value, 1, 64); if (clamped == _alwaysOnTopWindowHighlightThickness) return; _alwaysOnTopWindowHighlightThickness = clamped; OnPropertyChanged(); } }
+        public int AlwaysOnTopWindowHighlightCornerRadius { get => _alwaysOnTopWindowHighlightCornerRadius; set { int clamped = Math.Clamp(value, 0, 128); if (clamped == _alwaysOnTopWindowHighlightCornerRadius) return; _alwaysOnTopWindowHighlightCornerRadius = clamped; OnPropertyChanged(); } }
         public int BorderTransparencyPercent { get => _borderTransparencyPercent; set { if (value == _borderTransparencyPercent) return; _borderTransparencyPercent = value; OnPropertyChanged(); } }
         public int BorderThickness { get => _borderThickness; set { if (value == _borderThickness) return; _borderThickness = value; OnPropertyChanged(); } }
         public int CornerRadius { get => _cornerRadius; set { if (value == _cornerRadius) return; _cornerRadius = value; OnPropertyChanged(); } }
@@ -60,6 +68,10 @@ namespace WindowWorks.App.UI.ViewModels
                 if (d.TryGetValue("ReparentedWindowHighlightColor", out v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) ReparentedWindowHighlightColor = v.GetString()!;
                 if (d.TryGetValue("ReparentedWindowHighlightThickness", out v) && v.TryGetInt32(out var outlineThickness)) ReparentedWindowHighlightThickness = outlineThickness;
                 if (d.TryGetValue("ReparentedWindowHighlightCornerRadius", out v) && v.TryGetInt32(out var outlineRadius)) ReparentedWindowHighlightCornerRadius = outlineRadius;
+                if (d.TryGetValue("EnableAlwaysOnTopWindowHighlight", out v) && (v.ValueKind == JsonValueKind.True || v.ValueKind == JsonValueKind.False)) EnableAlwaysOnTopWindowHighlight = v.GetBoolean();
+                if (d.TryGetValue("AlwaysOnTopWindowHighlightColor", out v) && v.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(v.GetString())) AlwaysOnTopWindowHighlightColor = v.GetString()!;
+                if (d.TryGetValue("AlwaysOnTopWindowHighlightThickness", out v) && v.TryGetInt32(out var topThickness)) AlwaysOnTopWindowHighlightThickness = topThickness;
+                if (d.TryGetValue("AlwaysOnTopWindowHighlightCornerRadius", out v) && v.TryGetInt32(out var topRadius)) AlwaysOnTopWindowHighlightCornerRadius = topRadius;
                 if (d.TryGetValue("HighlightBorderTransparencyPercent", out v) && v.TryGetInt32(out var tp)) BorderTransparencyPercent = tp;
                 if (d.TryGetValue("HighlightBorderThickness", out v) && v.TryGetInt32(out var bt)) BorderThickness = bt;
                 if (d.TryGetValue("HighlightCornerRadius", out v) && v.TryGetInt32(out var cr)) CornerRadius = cr;
@@ -97,6 +109,13 @@ namespace WindowWorks.App.UI.ViewModels
             d["ReparentedWindowHighlightColor"] = color;
             d["ReparentedWindowHighlightThickness"] = ReparentedWindowHighlightThickness;
             d["ReparentedWindowHighlightCornerRadius"] = ReparentedWindowHighlightCornerRadius;
+            d["EnableAlwaysOnTopWindowHighlight"] = EnableAlwaysOnTopWindowHighlight;
+            if (!TryNormalizeReparentedWindowHighlightColor(AlwaysOnTopWindowHighlightColor, out var topColor))
+                throw new FormatException("Always-on-top window highlight color must contain 6 or 8 hex digits, optionally preceded by #.");
+            AlwaysOnTopWindowHighlightColor = topColor;
+            d["AlwaysOnTopWindowHighlightColor"] = topColor;
+            d["AlwaysOnTopWindowHighlightThickness"] = AlwaysOnTopWindowHighlightThickness;
+            d["AlwaysOnTopWindowHighlightCornerRadius"] = AlwaysOnTopWindowHighlightCornerRadius;
             d["HighlightBorderTransparencyPercent"] = BorderTransparencyPercent;
             d["HighlightBorderThickness"] = BorderThickness;
             // Use legacy key name expected by other code: HighlightCornerRadius
