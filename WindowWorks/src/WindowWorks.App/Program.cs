@@ -189,7 +189,8 @@ namespace WindowWorks.App
                                 MessageBoxIcon.Warning);
                             if (result == DialogResult.Yes)
                             {
-                                _auditLog.EmergencyReset(_windowManager);
+                                int skipped = _auditLog.EmergencyReset(_windowManager);
+                                if (skipped > 0) _tray.ShowNotification("Reset All incomplete", $"{skipped} window snapshot(s) could not be safely restored. Closed/replaced windows were skipped; retryable snapshots remain available for Undo or another Reset All.", ToolTipIcon.Warning);
                                 // Ensure click-through state is also reset when performing an emergency reset
                                 try { _clickThroughManager.ResetAllClickThrough(); } catch { }
                             }

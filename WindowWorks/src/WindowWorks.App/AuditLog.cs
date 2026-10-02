@@ -19,22 +19,48 @@ namespace WindowWorks.App
             _stack.Push(snapshot);
         }
 
-        public Models.WindowStateSnapshot? UndoLast(WindowManager wm)
+        public Models.WindowStateSnapshot? UndoLast(WindowManager wm) => UndoLast(wm, out _);
+
+        public Models.WindowStateSnapshot? UndoLast(WindowManager wm, out string? failure)
         {
+            failure = null;
             if (_stack.Count == 0) return null;
-            var snap = _stack.Pop();
-            snap.Restore(wm);
-            return snap;
+            var snap = _stack.Peek();
+            if (snap.TryRestore(wm, out failure, out bool stale))
+            {
+                _stack.Pop();
+                return snap;
+            }
+            if (stale) _stack.Pop();
+            else failure += " The snapshot remains available for another Undo attempt.";
+            return null;
         }
 
-        public void EmergencyReset(WindowManager wm)
+        public int EmergencyReset(WindowManager wm)
         {
-            // Restore all snapshots quickly. We pop in reverse order so last change gets restored first.
+            int skipped = 0;
+            var retry = new List<Models.WindowStateSnapshot>();
+            var blocked = new HashSet<(IntPtr Hwnd, WindowManager.WindowIdentity? Identity)>();
+            // Process each entry once; defer older changes to a window whose later restore failed.
             while (_stack.Count > 0)
             {
                 var snap = _stack.Pop();
-                snap.Restore(wm);
+                if (blocked.Contains((snap.Hwnd, snap.Identity)))
+                {
+                    retry.Add(snap);
+                    skipped++;
+                    continue;
+                }
+                if (snap.TryRestore(wm, out _, out bool stale)) continue;
+                skipped++;
+                if (!stale)
+                {
+                    retry.Add(snap);
+                    blocked.Add((snap.Hwnd, snap.Identity));
+                }
             }
+            for (int i = retry.Count - 1; i >= 0; i--) _stack.Push(retry[i]);
+            return skipped;
         }
 
         public void Dispose()

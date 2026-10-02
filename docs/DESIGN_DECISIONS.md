@@ -1,5 +1,17 @@
 # Design Decisions
 
+## 2026-10-02 — Operation-specific undo and bounded retry of verifiable snapshots
+
+- **Decision:** Tag snapshots as opacity or topmost and restore only the corresponding state. A failed Undo retains its entry when the original HWND token remains verifiable (or verification is temporarily unavailable); permanently stale entries are discarded. Reset All makes one pass and defers older entries for a window whose latest restore is retryable. Opacity mutations roll back an added layered style on alpha failure, retaining a snapshot when that rollback cannot be confirmed.
+- **Rationale:** Restoring opacity for a topmost-only change can fail on windows that reject layered alpha, preventing the requested topmost undo. Popping transient failures loses recoverable state; retrying them inline during Reset All would not terminate.
+- **Alternatives considered:** Full-state restore for every snapshot and unconditional pop-on-failure were rejected because they couple unrelated operations and erase retryable work.
+
+## 2026-10-02 — Live native tokens supersede destroy-only external HWND generations
+
+- **Decision:** Assign a process-unique named native property to each verifiable external top-level HWND, and require its live token to match the recorded generation before mutation or restore. Do not overwrite an existing property. A queued destroy event cannot invalidate a still-live matching property; dispose removes only properties whose values still match. Failed hook installation or property writes reject actions and produce user-visible explanations.
+- **Rationale:** Out-of-context destroy events are queued, so a recycled HWND can appear before its prior destroy event is delivered. The live property disappears with the destroyed window and rejects stale snapshots independently of callback timing. Windows with incompatible integrity levels cannot be safely tagged and must fail closed.
+- **Alternatives considered:** Destroy-only generations were previously used to avoid writing external HWND properties, but could not protect the queue gap. PID/start/class checks cannot distinguish a recycled same-process, same-class window.
+
 ## 2026-10-02 — External HWND lifetimes need destroy-invalidated generations
 
 - **Decision:** Extend external `WindowIdentity` with an in-process monotonically increasing lifetime generation keyed by top-level HWND. Invalidate it only for `EVENT_OBJECT_DESTROY` notifications with `OBJID_WINDOW` and child ID zero; undo compares the full identity, including generation. If the external destroy hook could not be installed, reject external identity capture rather than issue a token that will never expire. Existing reparent hosts retain their independent native HWND-property token.

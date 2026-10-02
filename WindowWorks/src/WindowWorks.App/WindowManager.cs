@@ -16,6 +16,12 @@ namespace WindowWorks.App
 
     public class WindowManager : IDisposable
     {
+        internal sealed class WindowChangeException : InvalidOperationException
+        {
+            internal bool PartialChange { get; }
+            internal WindowChangeException(string message, bool partialChange) : base(message) => PartialChange = partialChange;
+        }
+
         // (no debug events)
         private readonly AuditLog _auditLog;
         // Active highlight overlays keyed by target window handle
@@ -27,6 +33,7 @@ namespace WindowWorks.App
         private static readonly object s_externalLifetimeLock = new();
         private static readonly System.Collections.Generic.Dictionary<IntPtr, long> s_externalLifetimes = new();
         private static long s_nextExternalLifetime;
+        private static readonly string s_externalIdProperty = "WindowWorks.External." + Guid.NewGuid().ToString("N");
         private static volatile bool s_externalDestroyHookActive;
         private readonly System.Windows.Forms.Timer _outlineTimer;
         private readonly System.Collections.Generic.Dictionary<IntPtr, TopmostOutlineWindow> _topmostOutlines = new();
@@ -42,6 +49,24 @@ namespace WindowWorks.App
             if (!Native.SetProp(hwnd, ReparentHostIdProperty, new IntPtr(id))) return 0;
             s_activeHostIds[hwnd] = id;
             return id;
+        }
+
+        internal static bool IsIdentityPermanentlyStale(IntPtr hwnd, WindowIdentity? expected)
+        {
+            if (expected is null || !Native.IsWindow(hwnd)) return true;
+            if (Native.GetWindowThreadProcessId(hwnd, out uint pid) == 0) return false;
+            if (pid != expected.Value.ProcessId) return true;
+            if (expected.Value.HostId != 0)
+            {
+                Marshal.SetLastPInvokeError(0);
+                IntPtr hostToken = Native.GetProp(hwnd, ReparentHostIdProperty);
+                return hostToken != new IntPtr(expected.Value.HostId) &&
+                    (hostToken != IntPtr.Zero || Marshal.GetLastPInvokeError() == 0);
+            }
+            Marshal.SetLastPInvokeError(0);
+            IntPtr token = Native.GetProp(hwnd, s_externalIdProperty);
+            return token != new IntPtr(expected.Value.ExternalLifetime) &&
+                (token != IntPtr.Zero || Marshal.GetLastPInvokeError() == 0);
         }
 
         internal void UnregisterReparentHost(IntPtr hwnd, long id)
@@ -71,34 +96,42 @@ namespace WindowWorks.App
             if (pid == (uint)Environment.ProcessId &&
                 (!s_activeHostIds.TryGetValue(hwnd, out hostId) || hostId == 0 ||
                  Native.GetProp(hwnd, ReparentHostIdProperty) != new IntPtr(hostId))) return null;
-            long externalLifetime = 0;
-            if (hostId == 0)
-            {
-                lock (s_externalLifetimeLock)
-                {
-                    if (!s_externalDestroyHookActive) return null;
-                    if (!s_externalLifetimes.TryGetValue(hwnd, out externalLifetime))
-                        s_externalLifetimes[hwnd] = externalLifetime = ++s_nextExternalLifetime;
-                }
-            }
             var className = new StringBuilder(256);
             if (Native.GetClassName(hwnd, className, className.Capacity) == 0) return null;
             try
             {
                 using var process = Process.GetProcessById((int)pid);
                 long processStart = process.StartTime.ToUniversalTime().Ticks;
+                long externalLifetime = 0;
                 if (hostId == 0)
                 {
                     lock (s_externalLifetimeLock)
                     {
-                        if (!s_externalDestroyHookActive || !s_externalLifetimes.TryGetValue(hwnd, out long current) ||
-                            current != externalLifetime) return null;
+                        if (!s_externalDestroyHookActive) return null;
+                        Marshal.SetLastPInvokeError(0);
+                        IntPtr liveToken = Native.GetProp(hwnd, s_externalIdProperty);
+                        if (liveToken == IntPtr.Zero && Marshal.GetLastPInvokeError() != 0) return null;
+                        if (s_externalLifetimes.TryGetValue(hwnd, out long current))
+                        {
+                            if (liveToken != new IntPtr(current)) return null;
+                            externalLifetime = current;
+                        }
+                        else
+                        {
+                            // Never replace another process instance's property; SetProp overwrites existing values.
+                            if (liveToken != IntPtr.Zero) return null;
+                            externalLifetime = ++s_nextExternalLifetime;
+                            if (!Native.SetProp(hwnd, s_externalIdProperty, new IntPtr(externalLifetime)) ||
+                                Native.GetProp(hwnd, s_externalIdProperty) != new IntPtr(externalLifetime)) return null;
+                            s_externalLifetimes[hwnd] = externalLifetime;
+                        }
                     }
                 }
                 else if (!s_activeHostIds.TryGetValue(hwnd, out long currentHost) || currentHost != hostId ||
                          Native.GetProp(hwnd, ReparentHostIdProperty) != new IntPtr(hostId)) return null;
                 if (!Native.IsWindow(hwnd) || Native.GetWindowThreadProcessId(hwnd, out uint currentPid) == 0 ||
-                    currentPid != pid || Native.GetAncestor(hwnd, 2) != hwnd) return null;
+                    currentPid != pid || Native.GetAncestor(hwnd, 2) != hwnd ||
+                    (hostId == 0 && Native.GetProp(hwnd, s_externalIdProperty) != new IntPtr(externalLifetime))) return null;
                 return new WindowIdentity(pid, processStart, className.ToString(), hostId, externalLifetime);
             }
             catch { return null; }
@@ -117,7 +150,12 @@ namespace WindowWorks.App
             _windowDestroyed = (_, _, hwnd, objectId, childId, _, _) =>
             {
                 if (objectId != 0 || childId != 0) return;
-                lock (s_externalLifetimeLock) s_externalLifetimes.Remove(hwnd);
+                lock (s_externalLifetimeLock)
+                {
+                    if (!s_externalLifetimes.TryGetValue(hwnd, out long token) ||
+                        (Native.IsWindow(hwnd) && Native.GetProp(hwnd, s_externalIdProperty) == new IntPtr(token))) return;
+                    s_externalLifetimes.Remove(hwnd);
+                }
                 _managedTopmost.TryRemove(hwnd, out _);
             };
             _destroyHook = Native.SetWinEventHook(0x8001, 0x8001, IntPtr.Zero, _windowDestroyed, 0, 0, 2 | 1);
@@ -245,19 +283,26 @@ namespace WindowWorks.App
         public void AdjustOpacity(IntPtr hwnd, int deltaPercent, bool saveSnapshot = true)
         {
             if (hwnd == IntPtr.Zero) return;
-            var snap = WindowStateSnapshot.FromWindow(hwnd);
+            var snap = WindowStateSnapshot.FromWindow(hwnd, WindowChangeKind.Opacity);
+            RequireIdentity(hwnd, snap.Identity);
             if (snap.Identity is { HostId: > 0 }) return;
             int newOpacity = Math.Clamp(snap.Opacity + deltaPercent, 0, 100);
-            ApplyOpacity(hwnd, newOpacity);
+            try { ApplyOpacity(hwnd, newOpacity, snap.Identity); }
+            catch (WindowChangeException ex)
+            {
+                if (ex.PartialChange) _auditLog.RecordSnapshot(snap);
+                throw;
+            }
             if (saveSnapshot) _auditLog.RecordSnapshot(snap);
         }
 
         public bool ToggleTopmost(IntPtr hwnd, bool saveSnapshot = true)
         {
             if (hwnd == IntPtr.Zero) return false;
-            var snap = WindowStateSnapshot.FromWindow(hwnd);
+            var snap = WindowStateSnapshot.FromWindow(hwnd, WindowChangeKind.Topmost);
+            RequireIdentity(hwnd, snap.Identity);
             bool newTop = !snap.IsTopmost;
-            SetTopmost(hwnd, newTop);
+            SetTopmost(hwnd, newTop, snap.Identity);
             if (saveSnapshot && snap.Identity.HasValue && IsTopmost(hwnd) == newTop) _auditLog.RecordSnapshot(snap);
             return IsTopmost(hwnd);
         }
@@ -265,8 +310,13 @@ namespace WindowWorks.App
 
 
         public void ApplyOpacity(IntPtr hwnd, int opacityPercent)
+            => ApplyOpacity(hwnd, opacityPercent, CaptureIdentity(hwnd));
+
+        internal void ApplyOpacity(IntPtr hwnd, int opacityPercent, WindowIdentity? expected)
         {
-            if (hwnd == IntPtr.Zero) return;
+            WindowIdentity identity = RequireIdentity(hwnd, expected);
+            if (identity.HostId != 0)
+                throw new InvalidOperationException("Opacity cannot be changed on a reparent host.");
             try
             {
                 var desktop = Native.GetDesktopWindow();
@@ -288,27 +338,69 @@ namespace WindowWorks.App
             // avoid composition interference that can produce a black fill on some GPU-backed windows.
             try { RemoveHighlight(hwnd); } catch { }
 
+            RequireIdentity(hwnd, expected);
             // Ensure layered style and set alpha
+            Marshal.SetLastPInvokeError(0);
             int ex = Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE);
-            if ((ex & Native.WS_EX_LAYERED) == 0)
+            if (ex == 0 && Marshal.GetLastPInvokeError() != 0)
+                throw new InvalidOperationException("Windows rejected reading the window style. Opacity was not changed.");
+            bool addedLayeredStyle = (ex & Native.WS_EX_LAYERED) == 0;
+            if (addedLayeredStyle)
             {
-                Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_LAYERED);
+                Marshal.SetLastPInvokeError(0);
+                if (Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_LAYERED) == 0 &&
+                    Marshal.GetLastPInvokeError() != 0)
+                    throw new InvalidOperationException("Windows rejected the layered window style. Try a non-elevated window.");
             }
             byte alpha = (byte)(Math.Clamp(opacityPercent, 0, 100) * 255 / 100);
-            try { Native.SetLayeredWindowAttributes(hwnd, 0, alpha, Native.LWA_ALPHA); } catch { }
+            try
+            {
+                RequireIdentity(hwnd, expected);
+                if (!Native.SetLayeredWindowAttributes(hwnd, 0, alpha, Native.LWA_ALPHA))
+                    throw new InvalidOperationException("Windows rejected the opacity change. Try a non-elevated window.");
+            }
+            catch (InvalidOperationException)
+            {
+                if (addedLayeredStyle)
+                {
+                    if (CaptureIdentity(hwnd) != expected)
+                        throw new WindowChangeException("Opacity could not be applied after adding the layered style, and the original window can no longer be verified. The snapshot was saved for safe retry if the window is still present.", true);
+                    Marshal.SetLastPInvokeError(0);
+                    IntPtr previous = Native.SetWindowLong(hwnd, Native.GWL_EXSTYLE, ex);
+                    if ((previous == IntPtr.Zero && Marshal.GetLastPInvokeError() != 0) || Native.GetWindowLong(hwnd, Native.GWL_EXSTYLE) != ex)
+                        throw new WindowChangeException("Opacity was rejected and the layered window style could not be rolled back. Undo can retry restoring the original style.", true);
+                }
+                throw;
+            }
         }
 
         public void SetTopmost(IntPtr hwnd, bool topmost)
+            => SetTopmost(hwnd, topmost, CaptureIdentity(hwnd));
+
+        internal void SetTopmost(IntPtr hwnd, bool topmost, WindowIdentity? expected)
         {
-            var identity = CaptureIdentity(hwnd);
-            if (identity is null) return;
-            if (_managedTopmost.TryGetValue(hwnd, out var existing) && existing != identity.Value)
+            WindowIdentity identity = RequireIdentity(hwnd, expected);
+            if (_managedTopmost.TryGetValue(hwnd, out var existing) && existing != identity)
                 _managedTopmost.TryRemove(hwnd, out _);
             bool wasTopmost = IsTopmost(hwnd);
+            RequireIdentity(hwnd, expected);
             if (!Native.SetWindowPos(hwnd, topmost ? Native.HWND_TOPMOST : Native.HWND_NOTOPMOST, 0, 0, 0, 0,
-                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE)) return;
-            if (topmost && !wasTopmost && IsTopmost(hwnd)) _managedTopmost[hwnd] = identity.Value;
+                Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE))
+                throw new InvalidOperationException("Windows rejected the topmost change. Try a non-elevated window.");
+            RequireIdentity(hwnd, expected);
+            if (IsTopmost(hwnd) != topmost)
+                throw new InvalidOperationException("Windows did not apply the requested topmost state.");
+            if (topmost && !wasTopmost && IsTopmost(hwnd)) _managedTopmost[hwnd] = identity;
             if (!topmost) _managedTopmost.TryRemove(hwnd, out _);
+        }
+
+        internal static WindowIdentity RequireIdentity(IntPtr hwnd, WindowIdentity? expected)
+        {
+            if (expected is null || CaptureIdentity(hwnd) != expected)
+                throw new InvalidOperationException(!s_externalDestroyHookActive
+                    ? "WindowWorks could not install the window-destroy hook. Window changes are unavailable; restart WindowWorks. No change was applied."
+                    : "WindowWorks could not verify its live window token. The window may have closed or been replaced, or Windows may deny property access to an elevated window. Run WindowWorks at the same integrity level. No change was applied.");
+            return expected.Value;
         }
 
         internal System.Collections.Generic.KeyValuePair<IntPtr, WindowIdentity>[] ManagedTopmostWindows() => _managedTopmost.ToArray();
@@ -327,7 +419,13 @@ namespace WindowWorks.App
             _outlineTimer.Dispose();
             if (_destroyHook != IntPtr.Zero) Native.UnhookWinEvent(_destroyHook);
             s_externalDestroyHookActive = false;
-            lock (s_externalLifetimeLock) s_externalLifetimes.Clear();
+            lock (s_externalLifetimeLock)
+            {
+                foreach (var entry in s_externalLifetimes)
+                    if (Native.IsWindow(entry.Key) && Native.GetProp(entry.Key, s_externalIdProperty) == new IntPtr(entry.Value))
+                        Native.RemoveProp(entry.Key, s_externalIdProperty);
+                s_externalLifetimes.Clear();
+            }
             foreach (var registration in s_activeHostIds.ToArray()) UnregisterReparentHost(registration.Key, registration.Value);
             foreach (var outline in _topmostOutlines.Values) outline.Dispose();
             _topmostOutlines.Clear();

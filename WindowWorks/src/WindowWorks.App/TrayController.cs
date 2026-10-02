@@ -149,7 +149,8 @@ namespace WindowWorks.App
                         MessageBoxIcon.Warning);
                     if (result == DialogResult.Yes)
                     {
-                        _auditLog.EmergencyReset(_windowManager);
+                        int skipped = _auditLog.EmergencyReset(_windowManager);
+                        if (skipped > 0) ShowNotification("Reset All incomplete", $"{skipped} window snapshot(s) could not be safely restored. Closed/replaced windows were skipped; retryable snapshots remain available for Undo or another Reset All.", ToolTipIcon.Warning);
                         try { _clickThroughManager.ResetAllClickThrough(); } catch { }
                     }
                 }
@@ -392,7 +393,8 @@ namespace WindowWorks.App
 
             _lastTargetHwnd = hwnd;
             try { _windowManager.ShowHighlight(hwnd); } catch { }
-            _windowManager.AdjustOpacity(hwnd, e.Delta, saveSnapshot: true);
+            try { _windowManager.AdjustOpacity(hwnd, e.Delta, saveSnapshot: true); }
+            catch (InvalidOperationException ex) { ShowNotification("Opacity not changed", ex.Message, ToolTipIcon.Warning); return; }
             // Respect HUD display setting
             try
             {
@@ -421,7 +423,9 @@ namespace WindowWorks.App
 
             _lastTargetHwnd = hwnd;
             try { _windowManager.ShowHighlight(hwnd); } catch { }
-            bool enabled = _windowManager.ToggleTopmost(hwnd, saveSnapshot: true);
+            bool enabled;
+            try { enabled = _windowManager.ToggleTopmost(hwnd, saveSnapshot: true); }
+            catch (InvalidOperationException ex) { ShowNotification("Topmost not changed", ex.Message, ToolTipIcon.Warning); return; }
             ShowHud(enabled ? "Always-on-top enabled" : "Always-on-top disabled", hwnd);
         }
 
@@ -507,7 +511,12 @@ namespace WindowWorks.App
         private void ShowHud(string message, IntPtr? targetHwnd = null)
         {
             Action undo = () => {
-                var restored = _auditLog.UndoLast(_windowManager);
+                var restored = _auditLog.UndoLast(_windowManager, out string? failure);
+                if (failure != null)
+                {
+                    _activeHud?.UpdateMessage(failure);
+                    ShowNotification("Undo skipped", failure, ToolTipIcon.Warning);
+                }
                 try
                 {
                     if (restored != null && restored.Hwnd != IntPtr.Zero)
@@ -518,6 +527,31 @@ namespace WindowWorks.App
                     }
                 }
                 catch { }
+            };
+            IntPtr resetHwnd = targetHwnd ?? (_lastTargetHwnd != IntPtr.Zero ? _lastTargetHwnd : _windowManager.GetForegroundWindowHandle());
+            var resetIdentity = WindowManager.CaptureIdentity(resetHwnd);
+            Action reset = () =>
+            {
+                try
+                {
+                    WindowManager.RequireIdentity(resetHwnd, resetIdentity);
+                    var snap = Models.WindowStateSnapshot.FromWindow(resetHwnd, Models.WindowChangeKind.Opacity);
+                    WindowManager.RequireIdentity(resetHwnd, resetIdentity);
+                    try { _windowManager.ApplyOpacity(resetHwnd, 100, resetIdentity); }
+                    catch (WindowManager.WindowChangeException ex)
+                    {
+                        if (ex.PartialChange) _auditLog.RecordSnapshot(snap);
+                        throw;
+                    }
+                    _auditLog.RecordSnapshot(snap);
+                    _activeHud?.UpdateProgress(100);
+                    _activeHud?.UpdateMessage("Opacity reset to 100%");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _activeHud?.UpdateMessage("Reset skipped: original window cannot be verified");
+                    ShowNotification("Opacity reset skipped", ex.Message, ToolTipIcon.Warning);
+                }
             };
             int progress = 100; 
             try
@@ -540,6 +574,7 @@ namespace WindowWorks.App
                     catch { }
 
                     _activeHud.OnUndo = undo;
+                    _activeHud.OnReset = reset;
                     _activeHud.UpdateMessage(message);
                     _activeHud.UpdateProgress(progress);
                     _activeHud.ResetCloseTimer();
@@ -587,20 +622,7 @@ namespace WindowWorks.App
             }
             catch { }
             _activeHud.OnUndo = undo;
-            // Reset should restore opacity to 100% for the current target window and record a snapshot
-            IntPtr actionHwndNew = targetHwnd ?? (_lastTargetHwnd != IntPtr.Zero ? _lastTargetHwnd : _windowManager.GetForegroundWindowHandle());
-            _activeHud.OnReset = () => {
-                try
-                {
-                    if (actionHwndNew == IntPtr.Zero) return;
-                    var snap = Models.WindowStateSnapshot.FromWindow(actionHwndNew);
-                    _windowManager.ApplyOpacity(actionHwndNew, 100);
-                    _auditLog.RecordSnapshot(snap);
-                    _activeHud.UpdateProgress(100);
-                    _activeHud.UpdateMessage("Opacity reset to 100%");
-                }
-                catch { }
-            };
+            _activeHud.OnReset = reset;
             _activeHud.Closed += (s, e) => { _activeHud = null; _lastTargetHwnd = IntPtr.Zero; };
             _activeHud.UpdateMessage(message);
             _activeHud.UpdateProgress(progress);
