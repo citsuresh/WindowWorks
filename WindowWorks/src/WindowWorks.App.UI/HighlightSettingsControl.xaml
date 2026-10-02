@@ -2,7 +2,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:conv="clr-namespace:WindowWorks.App.UI.Converters"
-    Height="420" Width="580">
+    Height="580" Width="580">
     <UserControl.Resources>
         <conv:HexToBrushConverter x:Key="HexToBrushConverter" />
     </UserControl.Resources>
@@ -53,5 +53,27 @@
                 <TextBlock x:Name="HighlightPreviewLabel" Text="Sample Highlight" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="Black"/>
             </Grid>
         </Border>
+        <GroupBox Header="Reparented window highlight" Margin="0,16,0,0">
+            <StackPanel Margin="8">
+                <CheckBox x:Name="ChkReparentedWindowHighlight" Content="Highlight reparented window frames" IsChecked="{Binding EnableReparentedWindowHighlight, Mode=TwoWay}" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Width="140" VerticalAlignment="Center">Border color (hex)</TextBlock>
+                    <TextBox x:Name="TxtReparentedWindowHighlightColor" Width="200" Text="{Binding ReparentedWindowHighlightColor, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    <Button Content="Choose..." Width="80" Margin="8,0,0,0" Click="BtnChooseReparentedWindowHighlightColor_Click" />
+                    <Rectangle Width="28" Height="20" Stroke="Gray" StrokeThickness="1" Margin="8,0,0,0" VerticalAlignment="Center" Fill="{Binding ReparentedWindowHighlightColor, Converter={StaticResource HexToBrushConverter}}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBlock Width="140" VerticalAlignment="Center">Border thickness (px)</TextBlock>
+                    <TextBox x:Name="TxtReparentedWindowHighlightThickness" Width="60" Text="{Binding ReparentedWindowHighlightThickness, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PreviewMouseWheel="ReparentOutlineNumber_PreviewMouseWheel" />
+                    <TextBlock Margin="16,0,8,0" VerticalAlignment="Center">Corner radius (px)</TextBlock>
+                    <TextBox x:Name="TxtReparentedWindowHighlightCornerRadius" Width="60" Text="{Binding ReparentedWindowHighlightCornerRadius, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PreviewMouseWheel="ReparentOutlineNumber_PreviewMouseWheel" />
+                </StackPanel>
+                <TextBlock Margin="0,6,0,0" TextWrapping="Wrap">Maximized frames use at most 8 px inside; normal frames use the full thickness outside.</TextBlock>
+                <TextBlock Margin="0,8,0,0">Preview</TextBlock>
+                <Border x:Name="ReparentOutlinePreview" Width="360" Height="64" Margin="0,6,0,0" HorizontalAlignment="Left" Background="Transparent" BorderThickness="4" CornerRadius="4">
+                    <TextBlock Text="Reparented window" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </StackPanel>
+        </GroupBox>
     </StackPanel>
 </UserControl>

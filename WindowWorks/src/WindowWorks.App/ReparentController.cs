@@ -31,6 +31,7 @@ namespace WindowWorks.App
 
         private readonly ReparentEngine _engine = new();
         private readonly ReparentTrackingList _trackingList = new();
+        private readonly System.Windows.Threading.Dispatcher _ownerDispatcher;
         private readonly Models.AppSettings _settings;
         private readonly ReparentWinEventWatcher _winEventWatcher = new();
         private readonly ReparentCrashRecoveryStore _crashRecoveryStore;
@@ -59,6 +60,7 @@ namespace WindowWorks.App
         /// </summary>
         public ReparentController(Models.AppSettings? settings = null, ReparentCrashRecoveryStore? crashRecoveryStore = null)
         {
+            _ownerDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
             _settings = settings ?? new Models.AppSettings();
             _crashRecoveryStore = crashRecoveryStore ?? new ReparentCrashRecoveryStore();
             _ownershipMutex = new Mutex(false, @"Local\WindowWorks.ReparentController");
@@ -121,6 +123,22 @@ namespace WindowWorks.App
         /// menu item, §14 Phase 1 item 6) can inspect currently-reparented windows.
         /// </summary>
         public ReparentTrackingList TrackingList => _trackingList;
+
+        public void ApplyOutlineSettings()
+        {
+            bool enabled = _settings.EnableReparentedWindowHighlight;
+            string color = _settings.ReparentedWindowHighlightColor;
+            int thickness = _settings.ReparentedWindowHighlightThickness;
+            int radius = _settings.ReparentedWindowHighlightCornerRadius;
+            void Apply()
+            {
+                if (_disposed) return;
+                foreach (var entry in _trackingList.Entries)
+                    entry.Host.ConfigureOutline(enabled, color, thickness, radius);
+            }
+            if (_ownerDispatcher.CheckAccess()) Apply();
+            else _ownerDispatcher.BeginInvoke(new Action(Apply));
+        }
 
         // NOTE (design correction, superseding an earlier §8 step 8 assumption in
         // docs/REPARENT_FEATURE_PLAN.md): a child-HWND pick's restore target used to be forced
@@ -459,6 +477,8 @@ namespace WindowWorks.App
             bool resizable = cropGeometry is null &&
                 (!isChildHwndPick || _settings.AllowResizingReparentedChildElements);
             host.ConfigureResizability(resizable);
+            host.ConfigureOutline(_settings.EnableReparentedWindowHighlight, _settings.ReparentedWindowHighlightColor,
+                _settings.ReparentedWindowHighlightThickness, _settings.ReparentedWindowHighlightCornerRadius);
 
             bool reparented = false;
             ReparentedWindowEntry? entry = null;

@@ -20,6 +20,12 @@ namespace WindowWorks.App.Models
         public int HighlightBorderThickness { get; set; } = 4;
         public int HighlightCornerRadius { get; set; } = 4;
 
+        // Independent, opt-in outline around the visible reparent host frame.
+        public bool EnableReparentedWindowHighlight { get; set; } = false;
+        public string ReparentedWindowHighlightColor { get; set; } = "#CCFFFF00";
+        public int ReparentedWindowHighlightThickness { get; set; } = 4;
+        public int ReparentedWindowHighlightCornerRadius { get; set; } = 4;
+
         // Enable visual highlight and HUD confirmation messages
         public bool EnableHighlight { get; set; } = true;
         public bool EnableConfirmations { get; set; } = true;

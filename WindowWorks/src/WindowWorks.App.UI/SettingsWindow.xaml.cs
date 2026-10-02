@@ -309,6 +309,23 @@ namespace WindowWorks.App.UI
 
         private void BtnSave_Click(object sender, RoutedEventArgs e)
         {
+            if (_sections.TryGetValue("Highlight", out var highlightSection) &&
+                highlightSection.Vm is ViewModels.HighlightSettingsViewModel highlightVm)
+            {
+                var colorBox = (highlightSection.Control as HighlightSettingsControl)?.TxtReparentedWindowHighlightColor;
+                var input = colorBox?.Text ?? highlightVm.ReparentedWindowHighlightColor;
+                if (!ViewModels.HighlightSettingsViewModel.TryNormalizeReparentedWindowHighlightColor(input, out var normalized))
+                {
+                    NavList.SelectedItem = highlightSection.NavItem;
+                    MessageBox.Show(this, "Enter 6 or 8 hexadecimal digits for the reparented window border color (for example, #FFCC00 or CCFFCC00). A leading # is optional.",
+                        "Invalid reparented window highlight color", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    var field = (_sections["Highlight"].Control as HighlightSettingsControl)?.TxtReparentedWindowHighlightColor;
+                    field?.Focus();
+                    field?.SelectAll();
+                    return;
+                }
+                highlightVm.ReparentedWindowHighlightColor = normalized;
+            }
             // Collect settings from current content control(s).
             // For now, collect from known controls if present.
             try
@@ -331,6 +348,10 @@ namespace WindowWorks.App.UI
                     {
                         // Ensure bindings have been pushed from UI to VM
                         try { UpdateBindingSource(h, "TxtBorderColor", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtReparentedWindowHighlightColor", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtReparentedWindowHighlightThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "TxtReparentedWindowHighlightCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }
+                        try { UpdateBindingSource(h, "ChkReparentedWindowHighlight", System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty); } catch { }
                         try { UpdateBindingSource(h, "SldBorderTransparency", System.Windows.Controls.Slider.ValueProperty); } catch { }
                         try { UpdateBindingSource(h, "TxtBorderThickness", System.Windows.Controls.TextBox.TextProperty); } catch { }
                         try { UpdateBindingSource(h, "TxtCornerRadius", System.Windows.Controls.TextBox.TextProperty); } catch { }

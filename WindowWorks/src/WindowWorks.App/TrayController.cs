@@ -278,6 +278,7 @@ namespace WindowWorks.App
                             }
 
                             try { _persistence.SaveSettings(_settings); } catch { }
+                            _reparentController?.ApplyOutlineSettings();
 
                             // §9: if the Settings dialog leaves picker creation fully disabled,
                             // cancel any currently active picker session. Never affects already-

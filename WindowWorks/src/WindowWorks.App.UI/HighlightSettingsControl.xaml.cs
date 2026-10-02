@@ -61,6 +61,7 @@ namespace WindowWorks.App.UI
                 }
                 UpdateColorPreview(!string.IsNullOrWhiteSpace(vmColor) ? vmColor : TxtBorderColor.Text);
                 UpdateHighlightPreviewSettings();
+                UpdateReparentOutlinePreview();
                 // Wire Choose... button to VM command if available
                 try
                 {
@@ -180,8 +181,32 @@ namespace WindowWorks.App.UI
                     try { if (vm != null) TxtCornerRadius.Text = vm.CornerRadius.ToString(); } catch { }
                     Dispatcher.Invoke(() => UpdateHighlightPreviewSettings());
                 }
+                else if (e.PropertyName == "ReparentedWindowHighlightColor" ||
+                    e.PropertyName == "ReparentedWindowHighlightThickness" ||
+                    e.PropertyName == "ReparentedWindowHighlightCornerRadius")
+                {
+                    Dispatcher.Invoke(UpdateReparentOutlinePreview);
+                }
             }
             catch { }
+        }
+
+        private void ReparentOutlineNumber_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
+        {
+            if (sender is not TextBox box) return;
+            int current = int.TryParse(box.Text, out int value) ? value : 4;
+            bool thickness = box == TxtReparentedWindowHighlightThickness;
+            box.Text = Math.Clamp(current + (e.Delta > 0 ? 1 : -1), thickness ? 1 : 0, thickness ? 64 : 128).ToString();
+            e.Handled = true;
+        }
+
+        private void UpdateReparentOutlinePreview()
+        {
+            if (DataContext is not ViewModels.HighlightSettingsViewModel vm) return;
+            ReparentOutlinePreview.BorderThickness = new Thickness(vm.ReparentedWindowHighlightThickness);
+            ReparentOutlinePreview.CornerRadius = new CornerRadius(vm.ReparentedWindowHighlightCornerRadius);
+            var color = ParseColorFromString(vm.ReparentedWindowHighlightColor);
+            ReparentOutlinePreview.BorderBrush = new System.Windows.Media.SolidColorBrush(color ?? System.Windows.Media.Colors.Yellow);
         }
 
         private void SldBorderTransparency_ValueChanged(object? sender, System.Windows.RoutedPropertyChangedEventArgs<double> e)
@@ -463,6 +488,19 @@ namespace WindowWorks.App.UI
                 }
             }
             catch { }
+        }
+
+        private void BtnChooseReparentedWindowHighlightColor_Click(object sender, RoutedEventArgs e)
+        {
+            using var dialog = new WinForms.ColorDialog();
+            var current = ParseColorFromString(TxtReparentedWindowHighlightColor.Text);
+            if (current.HasValue)
+                dialog.Color = System.Drawing.Color.FromArgb(current.Value.R, current.Value.G, current.Value.B);
+            if (dialog.ShowDialog() == WinForms.DialogResult.OK)
+            {
+                byte alpha = current?.A ?? 0xCC;
+                TxtReparentedWindowHighlightColor.Text = $"#{alpha:X2}{dialog.Color.R:X2}{dialog.Color.G:X2}{dialog.Color.B:X2}";
+            }
         }
 
         private void UpdateColorPreview(string? text)

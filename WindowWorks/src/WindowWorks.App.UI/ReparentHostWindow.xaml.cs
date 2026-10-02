@@ -40,6 +40,14 @@ namespace WindowWorks.App.UI
     {
         private IntPtr _socketHwnd = IntPtr.Zero;
         private IntPtr _overlayHwnd = IntPtr.Zero;
+        private IntPtr _outlineHwnd;
+        private bool _outlineEnabled;
+        private Color _outlineColor = Color.FromArgb(0xCC, 0xFF, 0xFF, 0x00);
+        private int _outlineThickness = 4;
+        private int _outlineCornerRadius = 4;
+        private (int Width, int Height, int Thickness, int Radius, bool Inset)? _outlineRegionGeometry;
+        private const string OutlineWindowClassName = "WindowWorksReparentFrameOutline";
+        private static readonly Dictionary<IntPtr, ReparentHostWindow> s_outlineOwners = new();
         private HwndSource? _hwndSource;
         private HwndSource? _overlayContentSource;
         private EventHandler? _overlayLocationChangedHandler;
@@ -147,6 +155,30 @@ namespace WindowWorks.App.UI
         /// only after <see cref="SocketReady"/> has fired (IntPtr.Zero before then).
         /// </summary>
         public IntPtr SocketHwnd => _socketHwnd;
+
+        public void ConfigureOutline(bool enabled, string? color, int thickness, int cornerRadius)
+        {
+            _outlineEnabled = enabled;
+            _outlineThickness = Math.Clamp(thickness, 1, 64);
+            _outlineCornerRadius = Math.Clamp(cornerRadius, 0, 128);
+            if (color is not null && System.Text.RegularExpressions.Regex.IsMatch(
+                color, @"^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"))
+            {
+                _outlineColor = (Color)ColorConverter.ConvertFromString(color);
+            }
+            else _outlineColor = Color.FromArgb(0xCC, 0xFF, 0xFF, 0x00);
+
+            if (_hwndSource is not null)
+            {
+                if (_outlineEnabled) CreateOutlineWindow();
+                if (_outlineHwnd != IntPtr.Zero)
+                {
+                    NativeMethods.SetLayeredWindowAttributes(_outlineHwnd, 0, _outlineColor.A, NativeMethods.LWA_ALPHA);
+                    NativeMethods.InvalidateRect(_outlineHwnd, IntPtr.Zero, true);
+                }
+                PositionOutlineWindow();
+            }
+        }
 
         // Diagnostic logging for failure paths only (appended to a temp file, not
         // Debug.WriteLine, so it's visible even when not running under a debugger) — kept
@@ -288,6 +320,7 @@ namespace WindowWorks.App.UI
             }
 
             PositionSocket();
+            PositionOutlineWindow();
         }
 
         /// <summary>
@@ -351,7 +384,7 @@ namespace WindowWorks.App.UI
                 return;
             }
 
-            _overlayLocationChangedHandler = (_, _) => PositionOwnedOverlay();
+            _overlayLocationChangedHandler = (_, _) => { PositionOwnedOverlay(); PositionOutlineWindow(); };
             _overlaySizeChangedHandler = (_, _) =>
             {
                 if (_overlayResizeRepositionPending)
@@ -366,6 +399,7 @@ namespace WindowWorks.App.UI
                     {
                         PositionSocket();
                         PositionOwnedOverlay();
+                        PositionOutlineWindow();
                     }
                     finally
                     {
@@ -387,6 +421,8 @@ namespace WindowWorks.App.UI
                 PositionSocket();
                 CreateOwnedOverlay(hwnd);
                 PositionOwnedOverlay();
+                if (_outlineEnabled) CreateOutlineWindow();
+                PositionOutlineWindow();
                 StartOverlayHoverPollingIfNeeded();
                 SocketReady?.Invoke(this, EventArgs.Empty);
             }));
@@ -446,6 +482,7 @@ namespace WindowWorks.App.UI
             }
 
             UpdateOriginalReopenUi();
+            PositionOutlineWindow();
         }
 
         private void OnClosing(object sender, System.ComponentModel.CancelEventArgs e)
@@ -496,6 +533,14 @@ namespace WindowWorks.App.UI
                 s_overlayOwnersByHwnd.Remove(_overlayHwnd);
                 NativeMethods.DestroyWindow(_overlayHwnd);
                 _overlayHwnd = IntPtr.Zero;
+            }
+
+            if (_outlineHwnd != IntPtr.Zero)
+            {
+                s_outlineOwners.Remove(_outlineHwnd);
+                NativeMethods.DestroyWindow(_outlineHwnd);
+                _outlineHwnd = IntPtr.Zero;
+                _outlineRegionGeometry = null;
             }
 
             StopOverlayHoverInfrastructure();
@@ -632,6 +677,162 @@ namespace WindowWorks.App.UI
             return NativeMethods.GetGUIThreadInfo(0, ref threadInfo) &&
                 (threadInfo.hwndFocus == TargetHwnd ||
                  NativeMethods.IsChild(TargetHwnd, threadInfo.hwndFocus));
+        }
+
+        private void CreateOutlineWindow()
+        {
+            RegisterSocketClassOnce(OutlineWindowClassName);
+            var owner = _hwndSource?.Handle ?? IntPtr.Zero;
+            if (owner == IntPtr.Zero || _outlineHwnd != IntPtr.Zero) return;
+            var outline = NativeMethods.CreateWindowEx(
+                NativeMethods.WS_EX_LAYERED | NativeMethods.WS_EX_TOOLWINDOW |
+                NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_TRANSPARENT,
+                OutlineWindowClassName, string.Empty, NativeMethods.WS_POPUP,
+                0, 0, 1, 1, owner, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            if (outline == IntPtr.Zero)
+            {
+                DebugLog("Outline CreateWindowEx failed; GetLastError=" + Marshal.GetLastWin32Error());
+                return;
+            }
+            _outlineHwnd = outline;
+            s_outlineOwners[outline] = this;
+            NativeMethods.SetLayeredWindowAttributes(outline, 0, _outlineColor.A, NativeMethods.LWA_ALPHA);
+        }
+
+        private void PositionOutlineWindow()
+        {
+            bool show = _outlineEnabled && TargetHwnd != IntPtr.Zero &&
+                !_isOriginalTemporarilyReopened && WindowState != WindowState.Minimized &&
+                IsTargetAttachedToSocket();
+            if (!show || _hwndSource is null)
+            {
+                HideOutlineWindow();
+                return;
+            }
+
+            if (_outlineHwnd == IntPtr.Zero) CreateOutlineWindow();
+            if (_outlineHwnd == IntPtr.Zero) return;
+            var hostHwnd = _hwndSource.Handle;
+            NativeMethods.RECT rect;
+            bool haveFrame = false;
+            try
+            {
+                haveFrame = NativeMethods.DwmGetWindowAttribute(hostHwnd, NativeMethods.DWMWA_EXTENDED_FRAME_BOUNDS,
+                    out rect, Marshal.SizeOf<NativeMethods.RECT>()) == 0;
+            }
+            catch { rect = default; }
+            if (!haveFrame && !NativeMethods.GetWindowRect(hostHwnd, out rect))
+            {
+                HideOutlineWindow();
+                return;
+            }
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            bool inset = WindowState == WindowState.Maximized;
+            int thickness = inset ? Math.Min(_outlineThickness, 8) : _outlineThickness;
+            if (width <= 0 || height <= 0)
+            {
+                HideOutlineWindow();
+                return;
+            }
+            if (NativeMethods.MonitorFromRect(ref rect, NativeMethods.MONITOR_DEFAULTTONULL) == IntPtr.Zero)
+            {
+                HideOutlineWindow();
+                return;
+            }
+
+            // DWM visible-frame bounds are physical screen pixels; Win32 clips offscreen
+            // portions naturally, including when a frame crosses a monitor boundary.
+            int x = inset ? rect.Left : rect.Left - thickness;
+            int y = inset ? rect.Top : rect.Top - thickness;
+            int outlineWidth = inset ? width : width + thickness * 2;
+            int outlineHeight = inset ? height : height + thickness * 2;
+            if (outlineWidth <= thickness * 2 || outlineHeight <= thickness * 2)
+            {
+                HideOutlineWindow();
+                return;
+            }
+            int radius = Math.Min(_outlineCornerRadius, Math.Min(outlineWidth, outlineHeight) / 2);
+            var geometry = (outlineWidth, outlineHeight, thickness, radius, inset);
+            if (_outlineRegionGeometry != geometry)
+            {
+                if (!SetOutlineRegion(outlineWidth, outlineHeight, thickness, radius))
+                {
+                    HideOutlineWindow();
+                    return;
+                }
+                _outlineRegionGeometry = geometry;
+            }
+            if (!NativeMethods.SetWindowPos(_outlineHwnd, IntPtr.Zero, x, y, outlineWidth, outlineHeight,
+                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE))
+            {
+                HideOutlineWindow();
+                return;
+            }
+            if (!NativeMethods.IsWindowVisible(_outlineHwnd))
+                NativeMethods.ShowWindow(_outlineHwnd, NativeMethods.SW_SHOWNOACTIVATE);
+        }
+
+        private bool SetOutlineRegion(int width, int height, int thickness, int radius)
+        {
+            IntPtr outer = radius == 0
+                ? NativeMethods.CreateRectRgn(0, 0, width, height)
+                : NativeMethods.CreateRoundRectRgn(0, 0, width, height, radius * 2, radius * 2);
+            if (outer == IntPtr.Zero) return false;
+            int innerRadius = Math.Min(Math.Max(0, radius - thickness),
+                Math.Min(width - thickness * 2, height - thickness * 2) / 2);
+            IntPtr inner = innerRadius == 0
+                ? NativeMethods.CreateRectRgn(thickness, thickness, width - thickness, height - thickness)
+                : NativeMethods.CreateRoundRectRgn(thickness, thickness, width - thickness, height - thickness,
+                    innerRadius * 2, innerRadius * 2);
+            if (inner == IntPtr.Zero)
+            {
+                NativeMethods.DeleteObject(outer);
+                return false;
+            }
+            bool valid = NativeMethods.CombineRgn(outer, outer, inner, NativeMethods.RGN_DIFF) != 0;
+            NativeMethods.DeleteObject(inner);
+            if (!valid || NativeMethods.SetWindowRgn(_outlineHwnd, outer, true) == 0)
+            {
+                NativeMethods.DeleteObject(outer);
+                return false;
+            }
+            // SetWindowRgn takes ownership of outer on success.
+            return true;
+        }
+
+        private void HideOutlineWindow()
+        {
+            if (_outlineHwnd != IntPtr.Zero) NativeMethods.ShowWindow(_outlineHwnd, NativeMethods.SW_HIDE);
+        }
+
+        private static IntPtr OutlineWndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
+        {
+            const uint WM_PAINT = 0x000F;
+            const uint WM_NCHITTEST = 0x0084;
+            if (msg == WM_NCHITTEST) return new IntPtr(-1); // HTTRANSPARENT
+            if (msg == WM_PAINT)
+            {
+                var dc = NativeMethods.BeginPaint(hwnd, out var paint);
+                if (dc != IntPtr.Zero)
+                {
+                    if (s_outlineOwners.TryGetValue(hwnd, out var owner) &&
+                        NativeMethods.GetClientRect(hwnd, out var area))
+                    {
+                        Color c = owner._outlineColor;
+                        uint colorRef = (uint)(c.R | c.G << 8 | c.B << 16);
+                        var brush = NativeMethods.CreateSolidBrush(colorRef);
+                        if (brush != IntPtr.Zero)
+                        {
+                            NativeMethods.FillRect(dc, ref area, brush);
+                            NativeMethods.DeleteObject(brush);
+                        }
+                    }
+                    NativeMethods.EndPaint(hwnd, ref paint);
+                }
+                return IntPtr.Zero;
+            }
+            return NativeMethods.DefWindowProc(hwnd, msg, wParam, lParam);
         }
 
         private void CreateOwnedOverlay(IntPtr ownerHwnd)
@@ -813,6 +1014,7 @@ namespace WindowWorks.App.UI
 
         private void OnWindowStateChanged(object? sender, EventArgs e)
         {
+            PositionOutlineWindow();
             if (WindowState == WindowState.Maximized && !_allowMaximize)
             {
                 // Maximize is disallowed for this host (e.g. a DOM/crop-mode pick, which already
@@ -1492,7 +1694,9 @@ namespace WindowWorks.App.UI
             NativeMethods.WndProcDelegate wndProcDelegate =
                 string.Equals(className, OverlayWindowClassName, StringComparison.Ordinal)
                     ? OverlayWndProc
-                    : NativeMethods.DefWindowProc;
+                    : string.Equals(className, OutlineWindowClassName, StringComparison.Ordinal)
+                        ? OutlineWndProc
+                        : NativeMethods.DefWindowProc;
             s_wndProcDelegates[className] = wndProcDelegate;
             var wc = new NativeMethods.WNDCLASS
             {
@@ -1894,6 +2098,7 @@ namespace WindowWorks.App.UI
                     PositionSocket();
                     RefreshOverlayAnimationForCurrentDpi();
                     PositionOwnedOverlay();
+                    PositionOutlineWindow();
                 }));
 
                 handled = true;
@@ -2097,12 +2302,16 @@ namespace WindowWorks.App.UI
             public const uint WS_MAXIMIZE = 0x01000000;
             public const uint WS_EX_LAYERED = 0x00080000;
             public const uint WS_EX_TOOLWINDOW = 0x00000080;
+            public const uint WS_EX_TRANSPARENT = 0x00000020;
+            public const uint WS_EX_NOACTIVATE = 0x08000000;
             public const int WH_KEYBOARD_LL = 13;
             public const int WM_SYSKEYDOWN = 0x0104;
             public const uint VK_F4 = 0x73;
             public const uint LLKHF_ALTDOWN = 0x20;
             public const int SW_HIDE = 0;
             public const int SW_SHOWNOACTIVATE = 4;
+            public const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+            public const uint MONITOR_DEFAULTTONULL = 0;
             public const uint TME_LEAVE = 0x00000002;
             public const uint GA_ROOT = 2;
             public static readonly IntPtr IDC_SIZEALL = new(32646);
@@ -2145,6 +2354,17 @@ namespace WindowWorks.App.UI
                 public int Top;
                 public int Right;
                 public int Bottom;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            public struct PAINTSTRUCT
+            {
+                public IntPtr hdc;
+                [MarshalAs(UnmanagedType.Bool)] public bool fErase;
+                public RECT rcPaint;
+                [MarshalAs(UnmanagedType.Bool)] public bool fRestore;
+                [MarshalAs(UnmanagedType.Bool)] public bool fIncUpdate;
+                [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] rgbReserved;
             }
 
             [StructLayout(LayoutKind.Sequential)]
@@ -2208,6 +2428,18 @@ namespace WindowWorks.App.UI
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool DestroyWindow(IntPtr hWnd);
+
+            [DllImport("user32.dll")]
+            public static extern IntPtr BeginPaint(IntPtr hWnd, out PAINTSTRUCT lpPaint);
+
+            [DllImport("user32.dll")]
+            public static extern bool EndPaint(IntPtr hWnd, ref PAINTSTRUCT lpPaint);
+
+            [DllImport("user32.dll")]
+            public static extern int FillRect(IntPtr hDC, ref RECT lprc, IntPtr hbr);
+
+            [DllImport("user32.dll")]
+            public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
 
             public delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -2283,11 +2515,31 @@ namespace WindowWorks.App.UI
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+            [DllImport("dwmapi.dll")]
+            public static extern int DwmGetWindowAttribute(IntPtr hwnd, uint dwAttribute, out RECT pvAttribute, int cbAttribute);
+
+            [DllImport("user32.dll")]
+            public static extern IntPtr MonitorFromRect(ref RECT lprc, uint dwFlags);
+
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+            [DllImport("user32.dll", SetLastError = true)]
+            public static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, bool redraw);
+
+            public const int RGN_DIFF = 4;
+
+            [DllImport("gdi32.dll", SetLastError = true)]
+            public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+            [DllImport("gdi32.dll", SetLastError = true)]
+            public static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int width, int height);
+
+            [DllImport("gdi32.dll", SetLastError = true)]
+            public static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
 
             [DllImport("user32.dll", SetLastError = true)]
             public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
